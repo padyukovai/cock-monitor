@@ -30,20 +30,24 @@ rsync -avz "$REPO_ROOT/bin/" "$DEPLOY_HOST:/tmp/cock-monitor-staging/"
 rsync -avz "$REPO_ROOT/lib/" "$DEPLOY_HOST:/tmp/cock-monitor-staging/"
 rsync -avz "$REPO_ROOT/telegram_bot/" "$DEPLOY_HOST:/tmp/cock-monitor-staging/telegram_bot/"
 rsync -avz "$REPO_ROOT/systemd/" "$DEPLOY_HOST:/tmp/cock-monitor-staging/"
-rsync -avz "$REPO_ROOT/config.example.env" "$REPO_ROOT/README.md" "$DEPLOY_HOST:/tmp/cock-monitor-staging/"
+rsync -avz "$REPO_ROOT/config.example.env" "$REPO_ROOT/README.md" "$REPO_ROOT/requirements-chart.txt" "$DEPLOY_HOST:/tmp/cock-monitor-staging/"
 
 ssh "$DEPLOY_HOST" 'set -e
 mkdir -p /opt/cock-monitor/bin /opt/cock-monitor/lib /opt/cock-monitor/telegram_bot /opt/cock-monitor/systemd
 install -m755 /tmp/cock-monitor-staging/check-conntrack.sh /opt/cock-monitor/bin/check-conntrack.sh
 install -m755 /tmp/cock-monitor-staging/cock-status.sh /opt/cock-monitor/bin/cock-status.sh
+install -m755 /tmp/cock-monitor-staging/cock-daily-chart.py /opt/cock-monitor/bin/cock-daily-chart.py
 install -m644 /tmp/cock-monitor-staging/conntrack-metrics.sh /opt/cock-monitor/lib/conntrack-metrics.sh
 cp -a /tmp/cock-monitor-staging/telegram_bot/. /opt/cock-monitor/telegram_bot/
 install -m644 /tmp/cock-monitor-staging/cock-monitor.service /opt/cock-monitor/systemd/cock-monitor.service
 install -m644 /tmp/cock-monitor-staging/cock-monitor.timer /opt/cock-monitor/systemd/cock-monitor.timer
 install -m644 /tmp/cock-monitor-staging/cock-monitor-telegram-bot.service /opt/cock-monitor/systemd/cock-monitor-telegram-bot.service
 install -m644 /tmp/cock-monitor-staging/cock-monitor-telegram-bot.timer /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer
+install -m644 /tmp/cock-monitor-staging/cock-monitor-daily.service /opt/cock-monitor/systemd/cock-monitor-daily.service
+install -m644 /tmp/cock-monitor-staging/cock-monitor-daily.timer /opt/cock-monitor/systemd/cock-monitor-daily.timer
 install -m644 /tmp/cock-monitor-staging/config.example.env /opt/cock-monitor/config.example.env
 install -m644 /tmp/cock-monitor-staging/README.md /opt/cock-monitor/README.md
+install -m644 /tmp/cock-monitor-staging/requirements-chart.txt /opt/cock-monitor/requirements-chart.txt
 chown -R root:root /opt/cock-monitor
 rm -rf /tmp/cock-monitor-staging
 mkdir -p /var/lib/cock-monitor && chmod 700 /var/lib/cock-monitor
@@ -72,6 +76,14 @@ ssh "$DEPLOY_HOST" 'install -m644 /opt/cock-monitor/systemd/cock-monitor-telegra
   /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now cock-monitor-telegram-bot.timer'
 ```
 
+Суточный график в Telegram (**`cock-monitor-daily.timer`**) нужен **matplotlib** (например `apt install python3-matplotlib` на Debian/Ubuntu) и накопленные строки в `METRICS_DB` от `check-conntrack.sh`:
+
+```bash
+ssh "$DEPLOY_HOST" 'apt-get update && apt-get install -y python3-matplotlib sqlite3'
+ssh "$DEPLOY_HOST" 'install -m644 /opt/cock-monitor/systemd/cock-monitor-daily.service \
+  /opt/cock-monitor/systemd/cock-monitor-daily.timer /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now cock-monitor-daily.timer'
+```
+
 ## Обновление (повторный выкат)
 
 Синхронизируйте актуальные файлы приложения в `/opt/cock-monitor` и при изменении unit-файлов обновите systemd.
@@ -80,20 +92,22 @@ ssh "$DEPLOY_HOST" 'install -m644 /opt/cock-monitor/systemd/cock-monitor-telegra
 
 ```bash
 mkdir -p /tmp/cock-monitor-staging-local/telegram_bot
-cp -a "$REPO_ROOT/bin/check-conntrack.sh" "$REPO_ROOT/bin/cock-status.sh" /tmp/cock-monitor-staging-local/
+cp -a "$REPO_ROOT/bin/check-conntrack.sh" "$REPO_ROOT/bin/cock-status.sh" "$REPO_ROOT/bin/cock-daily-chart.py" /tmp/cock-monitor-staging-local/
 cp -a "$REPO_ROOT/lib/conntrack-metrics.sh" /tmp/cock-monitor-staging-local/
 cp -a "$REPO_ROOT/telegram_bot/." /tmp/cock-monitor-staging-local/telegram_bot/
-cp -a "$REPO_ROOT/config.example.env" "$REPO_ROOT/README.md" /tmp/cock-monitor-staging-local/
+cp -a "$REPO_ROOT/config.example.env" "$REPO_ROOT/README.md" "$REPO_ROOT/requirements-chart.txt" /tmp/cock-monitor-staging-local/
 rsync -avz /tmp/cock-monitor-staging-local/ "$DEPLOY_HOST:/tmp/cock-monitor-staging/"
 rm -rf /tmp/cock-monitor-staging-local
 
 ssh "$DEPLOY_HOST" 'set -e
 install -m755 /tmp/cock-monitor-staging/check-conntrack.sh /opt/cock-monitor/bin/check-conntrack.sh
 install -m755 /tmp/cock-monitor-staging/cock-status.sh /opt/cock-monitor/bin/cock-status.sh
+install -m755 /tmp/cock-monitor-staging/cock-daily-chart.py /opt/cock-monitor/bin/cock-daily-chart.py
 install -m644 /tmp/cock-monitor-staging/conntrack-metrics.sh /opt/cock-monitor/lib/conntrack-metrics.sh
 cp -a /tmp/cock-monitor-staging/telegram_bot/. /opt/cock-monitor/telegram_bot/
 install -m644 /tmp/cock-monitor-staging/config.example.env /opt/cock-monitor/config.example.env
 install -m644 /tmp/cock-monitor-staging/README.md /opt/cock-monitor/README.md
+install -m644 /tmp/cock-monitor-staging/requirements-chart.txt /opt/cock-monitor/requirements-chart.txt
 chown -R root:root /opt/cock-monitor
 rm -rf /tmp/cock-monitor-staging
 '
@@ -105,43 +119,51 @@ rm -rf /tmp/cock-monitor-staging
 
 ```bash
 mkdir -p /tmp/cock-monitor-staging-local/telegram_bot
-cp -a "$REPO_ROOT/bin/check-conntrack.sh" "$REPO_ROOT/bin/cock-status.sh" /tmp/cock-monitor-staging-local/
+cp -a "$REPO_ROOT/bin/check-conntrack.sh" "$REPO_ROOT/bin/cock-status.sh" "$REPO_ROOT/bin/cock-daily-chart.py" /tmp/cock-monitor-staging-local/
 cp -a "$REPO_ROOT/lib/conntrack-metrics.sh" /tmp/cock-monitor-staging-local/
 cp -a "$REPO_ROOT/telegram_bot/." /tmp/cock-monitor-staging-local/telegram_bot/
 cp -a "$REPO_ROOT/systemd/cock-monitor.service" "$REPO_ROOT/systemd/cock-monitor.timer" \
   "$REPO_ROOT/systemd/cock-monitor-telegram-bot.service" "$REPO_ROOT/systemd/cock-monitor-telegram-bot.timer" \
+  "$REPO_ROOT/systemd/cock-monitor-daily.service" "$REPO_ROOT/systemd/cock-monitor-daily.timer" \
   /tmp/cock-monitor-staging-local/
-cp -a "$REPO_ROOT/config.example.env" "$REPO_ROOT/README.md" /tmp/cock-monitor-staging-local/
+cp -a "$REPO_ROOT/config.example.env" "$REPO_ROOT/README.md" "$REPO_ROOT/requirements-chart.txt" /tmp/cock-monitor-staging-local/
 rsync -avz /tmp/cock-monitor-staging-local/ "$DEPLOY_HOST:/tmp/cock-monitor-staging/"
 rm -rf /tmp/cock-monitor-staging-local
 
 ssh "$DEPLOY_HOST" 'set -e
 install -m755 /tmp/cock-monitor-staging/check-conntrack.sh /opt/cock-monitor/bin/check-conntrack.sh
 install -m755 /tmp/cock-monitor-staging/cock-status.sh /opt/cock-monitor/bin/cock-status.sh
+install -m755 /tmp/cock-monitor-staging/cock-daily-chart.py /opt/cock-monitor/bin/cock-daily-chart.py
 install -m644 /tmp/cock-monitor-staging/conntrack-metrics.sh /opt/cock-monitor/lib/conntrack-metrics.sh
 cp -a /tmp/cock-monitor-staging/telegram_bot/. /opt/cock-monitor/telegram_bot/
 install -m644 /tmp/cock-monitor-staging/cock-monitor.service /opt/cock-monitor/systemd/cock-monitor.service
 install -m644 /tmp/cock-monitor-staging/cock-monitor.timer /opt/cock-monitor/systemd/cock-monitor.timer
 install -m644 /tmp/cock-monitor-staging/cock-monitor-telegram-bot.service /opt/cock-monitor/systemd/cock-monitor-telegram-bot.service
 install -m644 /tmp/cock-monitor-staging/cock-monitor-telegram-bot.timer /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer
+install -m644 /tmp/cock-monitor-staging/cock-monitor-daily.service /opt/cock-monitor/systemd/cock-monitor-daily.service
+install -m644 /tmp/cock-monitor-staging/cock-monitor-daily.timer /opt/cock-monitor/systemd/cock-monitor-daily.timer
 install -m644 /tmp/cock-monitor-staging/config.example.env /opt/cock-monitor/config.example.env
 install -m644 /tmp/cock-monitor-staging/README.md /opt/cock-monitor/README.md
+install -m644 /tmp/cock-monitor-staging/requirements-chart.txt /opt/cock-monitor/requirements-chart.txt
 chown -R root:root /opt/cock-monitor
 rm -rf /tmp/cock-monitor-staging
 install -m644 /opt/cock-monitor/systemd/cock-monitor.service \
   /opt/cock-monitor/systemd/cock-monitor.timer \
   /opt/cock-monitor/systemd/cock-monitor-telegram-bot.service \
-  /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer /etc/systemd/system/
+  /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer \
+  /opt/cock-monitor/systemd/cock-monitor-daily.service \
+  /opt/cock-monitor/systemd/cock-monitor-daily.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl restart cock-monitor.timer
 systemctl try-restart cock-monitor-telegram-bot.timer 2>/dev/null || true
+systemctl try-restart cock-monitor-daily.timer 2>/dev/null || true
 '
 ```
 
 Проверка таймеров:
 
 ```bash
-ssh "$DEPLOY_HOST" 'systemctl list-timers cock-monitor.timer cock-monitor-telegram-bot.timer --no-pager'
+ssh "$DEPLOY_HOST" 'systemctl list-timers cock-monitor.timer cock-monitor-telegram-bot.timer cock-monitor-daily.timer --no-pager'
 ```
 
 ## Важно

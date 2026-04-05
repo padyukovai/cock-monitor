@@ -8,3 +8,6 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Optional: poll Telegram for /status (same interval or rarer; needs python3, PYTHONPATH, COCK_MONITOR_HOME)
 # */3 * * * * cd /opt/cock-monitor && env PYTHONPATH=/opt/cock-monitor COCK_MONITOR_HOME=/opt/cock-monitor /usr/bin/python3 -m telegram_bot --poll-once /etc/cock-monitor.env >/dev/null 2>&1
+
+# Optional: daily PNG to Telegram (prefer systemd cock-monitor-daily.timer; needs matplotlib)
+# 5 0 * * * /usr/bin/python3 /opt/cock-monitor/bin/cock-daily-chart.py --env-file /etc/cock-monitor.env --send-telegram >/dev/null 2>&1

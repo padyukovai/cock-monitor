@@ -15,6 +15,43 @@ apply_defaults() {
   STATS_DROP_MIN="${STATS_DROP_MIN:-0}"
   STATS_INSERT_FAILED_MIN="${STATS_INSERT_FAILED_MIN:-0}"
   STATS_COOLDOWN_SECONDS="${STATS_COOLDOWN_SECONDS:-$COOLDOWN_SECONDS}"
+  # SQLite metrics history (check-conntrack.sh)
+  METRICS_DB="${METRICS_DB:-/var/lib/cock-monitor/metrics.db}"
+  METRICS_RECORD_EVERY_RUN="${METRICS_RECORD_EVERY_RUN:-1}"
+  METRICS_RECORD_MIN_INTERVAL_SEC="${METRICS_RECORD_MIN_INTERVAL_SEC:-0}"
+  METRICS_RETENTION_DAYS="${METRICS_RETENTION_DAYS:-14}"
+  METRICS_MAX_ROWS="${METRICS_MAX_ROWS:-0}"
+  # Delta/rate stats alerts (requires conntrack + at least one prior DB row)
+  ALERT_ON_STATS_DELTA="${ALERT_ON_STATS_DELTA:-0}"
+  STATS_DELTA_MIN_INTERVAL_SEC="${STATS_DELTA_MIN_INTERVAL_SEC:-60}"
+  STATS_DELTA_DROP_MIN="${STATS_DELTA_DROP_MIN:-0}"
+  STATS_DELTA_INSERT_FAILED_MIN="${STATS_DELTA_INSERT_FAILED_MIN:-0}"
+  STATS_DELTA_EARLY_DROP_MIN="${STATS_DELTA_EARLY_DROP_MIN:-0}"
+  STATS_DELTA_ERROR_MIN="${STATS_DELTA_ERROR_MIN:-0}"
+  STATS_DELTA_INVALID_MIN="${STATS_DELTA_INVALID_MIN:-0}"
+  STATS_DELTA_SEARCH_RESTART_MIN="${STATS_DELTA_SEARCH_RESTART_MIN:-0}"
+  STATS_RATE_DROP_PER_MIN="${STATS_RATE_DROP_PER_MIN:-0}"
+  STATS_RATE_INSERT_FAILED_PER_MIN="${STATS_RATE_INSERT_FAILED_PER_MIN:-0}"
+  STATS_RATE_EARLY_DROP_PER_MIN="${STATS_RATE_EARLY_DROP_PER_MIN:-0}"
+  STATS_RATE_ERROR_PER_MIN="${STATS_RATE_ERROR_PER_MIN:-0}"
+  STATS_RATE_INVALID_PER_MIN="${STATS_RATE_INVALID_PER_MIN:-0}"
+  STATS_RATE_SEARCH_RESTART_PER_MIN="${STATS_RATE_SEARCH_RESTART_PER_MIN:-0}"
+}
+
+# Unsigned 32-bit counter delta (conntrack stats may wrap).
+# Prints decimal delta or empty string if inputs are not non-negative integers.
+u32_counter_delta() {
+  local old=$1 new=$2
+  [[ "$old" =~ ^[0-9]+$ && "$new" =~ ^[0-9]+$ ]] || {
+    printf ''
+    return 0
+  }
+  if ((new >= old)); then
+    printf '%s' "$((new - old))"
+  else
+    printf '%s' "$((4294967296 - old + new))"
+  fi
+  return 0
 }
 
 sum_conntrack_stat() {
@@ -97,13 +134,21 @@ format_full_status_text() {
   else
     printf '\nconntrack: command not found\n'
   fi
-  printf '\nstats alerts: ALERT_ON_STATS=%s\n' "$ALERT_ON_STATS"
+  printf '\nstats alerts: ALERT_ON_STATS=%s ALERT_ON_STATS_DELTA=%s\n' \
+    "$ALERT_ON_STATS" "$ALERT_ON_STATS_DELTA"
   printf 'STATS_DROP_MIN=%s STATS_INSERT_FAILED_MIN=%s STATS_COOLDOWN_SECONDS=%s\n' \
     "$STATS_DROP_MIN" "$STATS_INSERT_FAILED_MIN" "$STATS_COOLDOWN_SECONDS"
+  printf 'METRICS_DB=%s METRICS_RECORD_EVERY_RUN=%s METRICS_RETENTION_DAYS=%s\n' \
+    "$METRICS_DB" "$METRICS_RECORD_EVERY_RUN" "$METRICS_RETENTION_DAYS"
   if command -v conntrack >/dev/null 2>&1; then
-    local ds ifs
+    local ds ifs ed er inv sr
     ds=$(sum_conntrack_stat drop)
     ifs=$(sum_conntrack_stat insert_failed)
-    printf 'current sums: drop=%s insert_failed=%s\n' "$ds" "$ifs"
+    ed=$(sum_conntrack_stat early_drop)
+    er=$(sum_conntrack_stat error)
+    inv=$(sum_conntrack_stat invalid)
+    sr=$(sum_conntrack_stat search_restart)
+    printf 'current sums: drop=%s insert_failed=%s early_drop=%s error=%s invalid=%s search_restart=%s\n' \
+      "$ds" "$ifs" "$ed" "$er" "$inv" "$sr"
   fi
 }

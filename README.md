@@ -2,7 +2,7 @@
 
 Лёгкая проверка заполненности таблицы **nf_conntrack** на Linux VPS с алертами в **Telegram**. Запуск по расписанию (**systemd timer** или **cron**), без постоянного демона, без Prometheus/Grafana и без привязки к MTProxy.
 
-Требования: **bash**, **curl**. Опционально пакет **conntrack** (утилита `conntrack -S` для строки в сообщении и для опциональных алертов по счётчикам). Для команд бота **`/status`** в Telegram нужны **Python 3** (только стандартная библиотека) и опциональный **systemd timer** (или строка в **cron**), см. ниже.
+Требования: **bash**, **curl**. Опционально пакет **conntrack** (утилита `conntrack -S` для строки в сообщении и для опциональных алертов по счётчикам). Для истории метрик в SQLite и дельта-алертов нужны **sqlite3** (CLI) и каталог **`/var/lib/cock-monitor`**. Для команд бота **`/status`** и **`/chart`** в Telegram нужны **Python 3**; **`/chart`** и суточный отчёт по таймеру требуют **matplotlib** (удобнее всего пакет ОС `python3-matplotlib`, см. [requirements-chart.txt](requirements-chart.txt)). Опциональный **systemd timer** (или **cron**), см. ниже.
 
 ## Быстрая установка (Ubuntu / Debian)
 
@@ -11,7 +11,7 @@
    ```bash
    sudo mkdir -p /opt/cock-monitor
    sudo cp -a bin lib telegram_bot systemd config.example.env README.md /opt/cock-monitor/
-   sudo chmod +x /opt/cock-monitor/bin/check-conntrack.sh /opt/cock-monitor/bin/cock-status.sh
+   sudo chmod +x /opt/cock-monitor/bin/check-conntrack.sh /opt/cock-monitor/bin/cock-status.sh /opt/cock-monitor/bin/cock-daily-chart.py
    ```
 
 2. Создайте конфиг с секретами:
@@ -64,9 +64,11 @@ sudo /opt/cock-monitor/bin/check-conntrack.sh --dry-run /etc/cock-monitor.env
 sudo /opt/cock-monitor/bin/cock-status.sh /etc/cock-monitor.env
 ```
 
-### Опционально: команды в Telegram (`/status`)
+### Опционально: команды в Telegram (`/status`, `/chart`)
 
 Алерты по-прежнему шлёт `check-conntrack.sh` по расписанию. Чтобы **по запросу** получать полный текст статуса в том же чате, включите опрос **getUpdates** без постоянного демона: разовый запуск Python по таймеру.
+
+- **`/chart`** строит PNG за последние 24 часа из `METRICS_DB` тем же скриптом, что и ежедневный таймер; на сервере должен быть установлен **matplotlib**.
 
 - Команды обрабатываются только из чата с вашим `TELEGRAM_CHAT_ID` (как и исходящие алерты).
 - Максимальная задержка ответа ≈ периоду таймера (по умолчанию **3 минуты** в [`systemd/cock-monitor-telegram-bot.timer`](systemd/cock-monitor-telegram-bot.timer)).
@@ -159,9 +161,34 @@ STATS_COOLDOWN_SECONDS=3600
 
 Ноль в `STATS_DROP_MIN` / `STATS_INSERT_FAILED_MIN` означает «не использовать этот порог». Для чтения статистики обычно нужен запуск от **root** (или capabilities).
 
+### История в SQLite и алерты по дельте / скорости
+
+При `METRICS_RECORD_EVERY_RUN=1` и/или `ALERT_ON_STATS_DELTA=1` скрипт пишет строки в **`METRICS_DB`** (по умолчанию `/var/lib/cock-monitor/metrics.db`): время, заполнение из `/proc`, суммы полей `conntrack -S` по CPU (`drop`, `insert_failed`, `early_drop`, `error`, `invalid`, `search_restart`) и дельты к предыдущей строке. Нужен исполняемый **`sqlite3`**.
+
+- **Первый замер** после пустой базы только инициализирует строку; алерты по дельте **не** отправляются.
+- **Кумулятивные** пороги `STATS_*_MIN` и **дельта/rate** (`ALERT_ON_STATS_DELTA`, `STATS_DELTA_*`, `STATS_RATE_*_PER_MIN`) могут работать **одновременно**; исходящие сообщения объединяются в один блок «STATS», общий cooldown задаётся **`STATS_COOLDOWN_SECONDS`**.
+- Дельты считаются с учётом возможного **переполнения 32-bit** счётчиков ядра (обёртка modulo 2³²).
+- **`METRICS_RETENTION_DAYS`** удаляет старые строки; **`METRICS_MAX_ROWS`** (если > 0) ограничивает число последних записей.
+- Режим **`DRY_RUN=1`** (или CLI `--dry-run`) **не** пишет в базу и не трогает retention.
+
+Подробные переменные см. в [`config.example.env`](config.example.env).
+
+### Суточный график в Telegram
+
+Скрипт [`bin/cock-daily-chart.py`](bin/cock-daily-chart.py) читает `METRICS_DB`, строит PNG (доля заполнения и дельты по интервалам) и может отправить его через Bot API.
+
+- По расписанию: unit-файлы [`systemd/cock-monitor-daily.service`](systemd/cock-monitor-daily.service) и [`systemd/cock-monitor-daily.timer`](systemd/cock-monitor-daily.timer) (по умолчанию **00:05**). Нужны **matplotlib** и те же `TELEGRAM_*`, что и для алертов.
+- Окно в часах задаётся **`DAILY_CHART_HOURS`** в `.env` (по умолчанию 24) или флагом `--hours` при ручном запуске.
+
+Пример ручной генерации файла без отправки:
+
+```bash
+sudo python3 /opt/cock-monitor/bin/cock-daily-chart.py --env-file /etc/cock-monitor.env --output /tmp/cock.png
+```
+
 ## Логи и диск
 
-Скрипт проверки почти ничего не пишет на диск, кроме небольшого **state**-файла для cooldown. При включённом опросе бота добавляется маленький файл **offset** для `getUpdates` (`TELEGRAM_OFFSET_FILE`). Не включайте избыточное логирование cron в файлы без `logrotate`.
+Скрипт проверки пишет небольшой **state**-файл для cooldown и при включённых метриках — файл **`metrics.db`** (порядок десятков килобайт на типичном интервале; см. retention). При включённом опросе бота добавляется файл **offset** для `getUpdates` (`TELEGRAM_OFFSET_FILE`). Не включайте избыточное логирование cron в файлы без `logrotate`.
 
 ## Критерий успеха
 

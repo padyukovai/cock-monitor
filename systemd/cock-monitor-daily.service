@@ -1,0 +1,11 @@
+[Unit]
+Description=cock-monitor daily metrics chart to Telegram (oneshot)
+Documentation=file:///opt/cock-monitor/README.md
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/etc/cock-monitor.env
+WorkingDirectory=/opt/cock-monitor
+ExecStart=/usr/bin/python3 /opt/cock-monitor/bin/cock-daily-chart.py --env-file /etc/cock-monitor.env --send-telegram
