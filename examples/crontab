@@ -1,0 +1,7 @@
+# Example crontab entries (adjust paths). Run as root if you use conntrack -S / ALERT_ON_STATS=1.
+# Mail off to avoid filling disk on repeated errors; use systemd journal if you use timers instead.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Every 5 minutes
+*/5 * * * * /opt/cock-monitor/bin/check-conntrack.sh /etc/cock-monitor.env >/dev/null 2>&1

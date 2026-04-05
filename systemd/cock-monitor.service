@@ -1,0 +1,15 @@
+[Unit]
+Description=Light conntrack fill check and Telegram alert (oneshot)
+Documentation=file:///opt/cock-monitor/README.md
+
+[Service]
+Type=oneshot
+# Root is typical: /proc/sys reads are world-readable; conntrack -S often needs privileges.
+User=root
+# Optional: default EnvironmentFile path on the server (adjust or duplicate in override).
+EnvironmentFile=-/etc/cock-monitor.env
+# Edit the script path to match where you cloned this repository.
+ExecStart=/opt/cock-monitor/bin/check-conntrack.sh /etc/cock-monitor.env
+
+[Install]
+WantedBy=multi-user.target

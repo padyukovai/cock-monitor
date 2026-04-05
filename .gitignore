@@ -1,0 +1,5 @@
+*.env
+!config.example.env
+*.local
+state
+cock-monitor.state

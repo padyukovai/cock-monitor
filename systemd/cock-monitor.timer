@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic conntrack check (cock-monitor)
+
+[Timer]
+OnBootSec=2min
+# Re-run 5 minutes after the previous run finished (light default for small VPS).
+OnUnitActiveSec=5min
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
