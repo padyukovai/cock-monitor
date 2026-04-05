@@ -151,4 +151,45 @@ format_full_status_text() {
     printf 'current sums: drop=%s insert_failed=%s early_drop=%s error=%s invalid=%s search_restart=%s\n' \
       "$ds" "$ifs" "$ed" "$er" "$inv" "$sr"
   fi
+  
+  local shaper_file="${SHAPER_STATUS_FILE:-/var/lib/cock-monitor/cpu_shaper.status}"
+  printf '\n--- VPN CPU Shaper ---\n'
+  if [[ -f "$shaper_file" ]]; then
+    local s_ts="" s_iface="" s_cpu="" s_rate="" s_op=""
+    while IFS='=' read -r k v; do
+      case "$k" in
+        ts) s_ts="$v" ;;
+        iface) s_iface="$v" ;;
+        cpu_pct) s_cpu="$v" ;;
+        rate_applied_mbit) s_rate="$v" ;;
+        tc_op) s_op="$v" ;;
+      esac
+    done < "$shaper_file"
+    
+    local emoji="🟢"
+    local op_rus="стабильно (hold)"
+    if [[ "$s_op" == "step_down" ]]; then
+      emoji="🔴"
+      op_rus="ограничение (step_down)"
+    elif [[ "$s_op" == "step_up" ]]; then
+      emoji="🟡"
+      op_rus="ускорение (step_up)"
+    elif [[ "$s_cpu" -gt 80 ]]; then
+      emoji="🟠"
+    fi
+    
+    printf "%s Скорость VPN: %s Mbit/s (на %s)\n" "$emoji" "${s_rate:-?}" "${s_iface:-?}"
+    printf "   Действие: %s\n" "$op_rus"
+    printf "   Загрузка CPU: %s%%\n" "${s_cpu:-?}"
+    
+    if [[ -n "$s_ts" ]]; then
+      local now; now=$(date +%s)
+      local diff=$((now - s_ts))
+      if (( diff > 300 )); then
+        printf "   ⚠️ Данные устарели на %d сек.\n" "$diff"
+      fi
+    fi
+  else
+    printf "Отключен или нет данных\n"
+  fi
 }
