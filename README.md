@@ -186,6 +186,16 @@ STATS_COOLDOWN_SECONDS=3600
 sudo python3 /opt/cock-monitor/bin/cock-daily-chart.py --env-file /etc/cock-monitor.env --output /tmp/cock.png
 ```
 
+### Умный "CPU-Aware" Шейпер с использованием CAKE
+
+Скрипт [`bin/cock-cpu-shaper.sh`](bin/cock-cpu-shaper.sh) (запускается по расписанию `cock-shaper.timer` каждые 10-15 секунд) отслеживает загрузку CPU. Если `cpu_pct` (вычисляется из /proc/stat) превышает пороговое значение, скрипт "прикручивает вентиль" - плавно снижает пропускную способность для VPN портов. Если нагрузка падает - скрипт вновь поднимает лимит.
+
+Главная фишка: для ограничения скорости используется встроенный в ядро планировщик **sch_cake** в режиме `dual-dsthost`. Он автоматически делит установленную ширину канала строго поровну между всеми качающими клиентами! Никакого "встал торрент - лег VPN".
+
+- **Конфиг:** блок `SHAPER_*` в [`config.example.env`](config.example.env). Включение: **`SHAPER_ENABLE=1`**. Важно указать порты Xray/VPN: `SHAPER_VPN_PORTS=443,2053,37346`.
+- **Расписание:** [`systemd/cock-shaper.timer`](systemd/cock-shaper.timer) (по умолчанию запускается каждые 10 секунд).
+- **Проверка:** для проверки в холостую: `sudo /opt/cock-monitor/bin/cock-cpu-shaper.sh --dry-run /etc/cock-monitor.env`
+
 ## Логи и диск
 
 Скрипт проверки пишет небольшой **state**-файл для cooldown и при включённых метриках — файл **`metrics.db`** (порядок десятков килобайт на типичном интервале; см. retention). При включённом опросе бота добавляется файл **offset** для `getUpdates` (`TELEGRAM_OFFSET_FILE`). Не включайте избыточное логирование cron в файлы без `logrotate`.

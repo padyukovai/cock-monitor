@@ -37,6 +37,7 @@ mkdir -p /opt/cock-monitor/bin /opt/cock-monitor/lib /opt/cock-monitor/telegram_
 install -m755 /tmp/cock-monitor-staging/check-conntrack.sh /opt/cock-monitor/bin/check-conntrack.sh
 install -m755 /tmp/cock-monitor-staging/cock-status.sh /opt/cock-monitor/bin/cock-status.sh
 install -m755 /tmp/cock-monitor-staging/cock-daily-chart.py /opt/cock-monitor/bin/cock-daily-chart.py
+install -m755 /tmp/cock-monitor-staging/cock-cpu-shaper.sh /opt/cock-monitor/bin/cock-cpu-shaper.sh
 install -m644 /tmp/cock-monitor-staging/conntrack-metrics.sh /opt/cock-monitor/lib/conntrack-metrics.sh
 cp -a /tmp/cock-monitor-staging/telegram_bot/. /opt/cock-monitor/telegram_bot/
 install -m644 /tmp/cock-monitor-staging/cock-monitor.service /opt/cock-monitor/systemd/cock-monitor.service
@@ -45,6 +46,8 @@ install -m644 /tmp/cock-monitor-staging/cock-monitor-telegram-bot.service /opt/c
 install -m644 /tmp/cock-monitor-staging/cock-monitor-telegram-bot.timer /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer
 install -m644 /tmp/cock-monitor-staging/cock-monitor-daily.service /opt/cock-monitor/systemd/cock-monitor-daily.service
 install -m644 /tmp/cock-monitor-staging/cock-monitor-daily.timer /opt/cock-monitor/systemd/cock-monitor-daily.timer
+install -m644 /tmp/cock-monitor-staging/cock-shaper.service /opt/cock-monitor/systemd/cock-shaper.service
+install -m644 /tmp/cock-monitor-staging/cock-shaper.timer /opt/cock-monitor/systemd/cock-shaper.timer
 install -m644 /tmp/cock-monitor-staging/config.example.env /opt/cock-monitor/config.example.env
 install -m644 /tmp/cock-monitor-staging/README.md /opt/cock-monitor/README.md
 install -m644 /tmp/cock-monitor-staging/requirements-chart.txt /opt/cock-monitor/requirements-chart.txt
@@ -57,7 +60,9 @@ if [ ! -f /etc/cock-monitor.env ]; then
   echo "Создан /etc/cock-monitor.env — заполните TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID"
 fi
 install -m644 /opt/cock-monitor/systemd/cock-monitor.service \
-  /opt/cock-monitor/systemd/cock-monitor.timer /etc/systemd/system/
+  /opt/cock-monitor/systemd/cock-monitor.timer \
+  /opt/cock-monitor/systemd/cock-shaper.service \
+  /opt/cock-monitor/systemd/cock-shaper.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now cock-monitor.timer
 '
@@ -82,6 +87,12 @@ ssh "$DEPLOY_HOST" 'install -m644 /opt/cock-monitor/systemd/cock-monitor-telegra
 ssh "$DEPLOY_HOST" 'apt-get update && apt-get install -y python3-matplotlib sqlite3'
 ssh "$DEPLOY_HOST" 'install -m644 /opt/cock-monitor/systemd/cock-monitor-daily.service \
   /opt/cock-monitor/systemd/cock-monitor-daily.timer /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now cock-monitor-daily.timer'
+```
+
+Умный CPU CAKE шейпер: в `/etc/cock-monitor.env` задайте **`SHAPER_ENABLE=1`**, укажите **`SHAPER_IFACE`** (например `ens3`) и порты **`SHAPER_VPN_PORTS`**. В системе должна быть поддержка **sch_cake**. Затем:
+
+```bash
+ssh "$DEPLOY_HOST" 'systemctl enable --now cock-shaper.timer && systemctl list-timers cock-shaper.timer --no-pager'
 ```
 
 ## Обновление (повторный выкат)
@@ -119,12 +130,13 @@ rm -rf /tmp/cock-monitor-staging
 
 ```bash
 mkdir -p /tmp/cock-monitor-staging-local/telegram_bot
-cp -a "$REPO_ROOT/bin/check-conntrack.sh" "$REPO_ROOT/bin/cock-status.sh" "$REPO_ROOT/bin/cock-daily-chart.py" /tmp/cock-monitor-staging-local/
+cp -a "$REPO_ROOT/bin/check-conntrack.sh" "$REPO_ROOT/bin/cock-status.sh" "$REPO_ROOT/bin/cock-daily-chart.py" "$REPO_ROOT/bin/cock-cpu-shaper.sh" /tmp/cock-monitor-staging-local/
 cp -a "$REPO_ROOT/lib/conntrack-metrics.sh" /tmp/cock-monitor-staging-local/
 cp -a "$REPO_ROOT/telegram_bot/." /tmp/cock-monitor-staging-local/telegram_bot/
 cp -a "$REPO_ROOT/systemd/cock-monitor.service" "$REPO_ROOT/systemd/cock-monitor.timer" \
   "$REPO_ROOT/systemd/cock-monitor-telegram-bot.service" "$REPO_ROOT/systemd/cock-monitor-telegram-bot.timer" \
   "$REPO_ROOT/systemd/cock-monitor-daily.service" "$REPO_ROOT/systemd/cock-monitor-daily.timer" \
+  "$REPO_ROOT/systemd/cock-shaper.service" "$REPO_ROOT/systemd/cock-shaper.timer" \
   /tmp/cock-monitor-staging-local/
 cp -a "$REPO_ROOT/config.example.env" "$REPO_ROOT/README.md" "$REPO_ROOT/requirements-chart.txt" /tmp/cock-monitor-staging-local/
 rsync -avz /tmp/cock-monitor-staging-local/ "$DEPLOY_HOST:/tmp/cock-monitor-staging/"
@@ -134,6 +146,7 @@ ssh "$DEPLOY_HOST" 'set -e
 install -m755 /tmp/cock-monitor-staging/check-conntrack.sh /opt/cock-monitor/bin/check-conntrack.sh
 install -m755 /tmp/cock-monitor-staging/cock-status.sh /opt/cock-monitor/bin/cock-status.sh
 install -m755 /tmp/cock-monitor-staging/cock-daily-chart.py /opt/cock-monitor/bin/cock-daily-chart.py
+install -m755 /tmp/cock-monitor-staging/cock-cpu-shaper.sh /opt/cock-monitor/bin/cock-cpu-shaper.sh
 install -m644 /tmp/cock-monitor-staging/conntrack-metrics.sh /opt/cock-monitor/lib/conntrack-metrics.sh
 cp -a /tmp/cock-monitor-staging/telegram_bot/. /opt/cock-monitor/telegram_bot/
 install -m644 /tmp/cock-monitor-staging/cock-monitor.service /opt/cock-monitor/systemd/cock-monitor.service
@@ -142,6 +155,8 @@ install -m644 /tmp/cock-monitor-staging/cock-monitor-telegram-bot.service /opt/c
 install -m644 /tmp/cock-monitor-staging/cock-monitor-telegram-bot.timer /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer
 install -m644 /tmp/cock-monitor-staging/cock-monitor-daily.service /opt/cock-monitor/systemd/cock-monitor-daily.service
 install -m644 /tmp/cock-monitor-staging/cock-monitor-daily.timer /opt/cock-monitor/systemd/cock-monitor-daily.timer
+install -m644 /tmp/cock-monitor-staging/cock-shaper.service /opt/cock-monitor/systemd/cock-shaper.service
+install -m644 /tmp/cock-monitor-staging/cock-shaper.timer /opt/cock-monitor/systemd/cock-shaper.timer
 install -m644 /tmp/cock-monitor-staging/config.example.env /opt/cock-monitor/config.example.env
 install -m644 /tmp/cock-monitor-staging/README.md /opt/cock-monitor/README.md
 install -m644 /tmp/cock-monitor-staging/requirements-chart.txt /opt/cock-monitor/requirements-chart.txt
@@ -152,7 +167,9 @@ install -m644 /opt/cock-monitor/systemd/cock-monitor.service \
   /opt/cock-monitor/systemd/cock-monitor-telegram-bot.service \
   /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer \
   /opt/cock-monitor/systemd/cock-monitor-daily.service \
-  /opt/cock-monitor/systemd/cock-monitor-daily.timer /etc/systemd/system/
+  /opt/cock-monitor/systemd/cock-monitor-daily.timer \
+  /opt/cock-monitor/systemd/cock-shaper.service \
+  /opt/cock-monitor/systemd/cock-shaper.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl restart cock-monitor.timer
 systemctl try-restart cock-monitor-telegram-bot.timer 2>/dev/null || true

@@ -1,0 +1,12 @@
+[Unit]
+Description=Apply CPU-aware WAN CAKE shaper (cock-cpu-shaper)
+Documentation=file:///opt/cock-monitor/README.md
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/etc/cock-monitor.env
+ExecStart=/opt/cock-monitor/bin/cock-cpu-shaper.sh /etc/cock-monitor.env
+
+[Install]
+WantedBy=multi-user.target
