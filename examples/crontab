@@ -5,3 +5,6 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Every 5 minutes
 */5 * * * * /opt/cock-monitor/bin/check-conntrack.sh /etc/cock-monitor.env >/dev/null 2>&1
+
+# Optional: poll Telegram for /status (same interval or rarer; needs python3, PYTHONPATH, COCK_MONITOR_HOME)
+# */3 * * * * cd /opt/cock-monitor && env PYTHONPATH=/opt/cock-monitor COCK_MONITOR_HOME=/opt/cock-monitor /usr/bin/python3 -m telegram_bot --poll-once /etc/cock-monitor.env >/dev/null 2>&1

@@ -4,6 +4,11 @@ set -euo pipefail
 
 umask 077
 
+_COCK_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_COCK_REPO_ROOT="$(cd "${_COCK_SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=../lib/conntrack-metrics.sh
+source "${_COCK_REPO_ROOT}/lib/conntrack-metrics.sh"
+
 usage() {
   echo "Usage: ENV_FILE=/path/to.env $0" >&2
   echo "   or: $0 [--dry-run] /path/to.env" >&2
@@ -30,20 +35,6 @@ load_env_file() {
   # shellcheck disable=SC1090
   source "$f"
   set +a
-}
-
-apply_defaults() {
-  WARN_PERCENT="${WARN_PERCENT:-80}"
-  CRIT_PERCENT="${CRIT_PERCENT:-95}"
-  COOLDOWN_SECONDS="${COOLDOWN_SECONDS:-3600}"
-  STATE_FILE="${STATE_FILE:-/var/lib/cock-monitor/state}"
-  CHECK_CONNTRACK_FILL="${CHECK_CONNTRACK_FILL:-1}"
-  INCLUDE_CONNTRACK_STATS_LINE="${INCLUDE_CONNTRACK_STATS_LINE:-1}"
-  DRY_RUN="${DRY_RUN:-0}"
-  ALERT_ON_STATS="${ALERT_ON_STATS:-0}"
-  STATS_DROP_MIN="${STATS_DROP_MIN:-0}"
-  STATS_INSERT_FAILED_MIN="${STATS_INSERT_FAILED_MIN:-0}"
-  STATS_COOLDOWN_SECONDS="${STATS_COOLDOWN_SECONDS:-$COOLDOWN_SECONDS}"
 }
 
 state_get() {
@@ -75,27 +66,6 @@ now_epoch() {
   date +%s
 }
 
-sum_conntrack_stat() {
-  local name=$1
-  local sum=0 tok v
-  local line
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    for tok in $line; do
-      case "$tok" in
-        "${name}="*)
-          v="${tok#*=}"
-          [[ "$v" =~ ^[0-9]+$ ]] && sum=$((sum + v))
-          ;;
-      esac
-    done
-  done < <(conntrack -S 2>/dev/null || true)
-  printf '%s' "$sum"
-}
-
-conntrack_stats_line() {
-  conntrack -S 2>/dev/null | head -n1 | tr -d '\r' || true
-}
-
 send_telegram() {
   local text=$1
   if [[ "$DRY_RUN" == "1" ]]; then
@@ -121,42 +91,6 @@ send_telegram() {
     return 1
   fi
   rm -f "$out"
-  return 0
-}
-
-# Sets FILL_COUNT, FILL_MAX, FILL_PCT, FILL_SEVERITY (0=ok, 1=warn, 2=crit). Exit 1 on read/config error.
-compute_fill_severity() {
-  local count max pct
-  local cf cm
-  cf="/proc/sys/net/netfilter/nf_conntrack_count"
-  cm="/proc/sys/net/netfilter/nf_conntrack_max"
-  [[ -r "$cf" && -r "$cm" ]] || {
-    echo "check-conntrack: cannot read $cf or $cm (conntrack module enabled?)" >&2
-    return 1
-  }
-  count=$(tr -d '[:space:]' <"$cf" || true)
-  max=$(tr -d '[:space:]' <"$cm" || true)
-  [[ "$count" =~ ^[0-9]+$ && "$max" =~ ^[0-9]+$ ]] || {
-    echo "check-conntrack: unexpected values count='$count' max='$max'" >&2
-    return 1
-  }
-  if [[ "$max" -eq 0 ]]; then
-    echo "check-conntrack: nf_conntrack_max is 0 (conntrack disabled?)" >&2
-    return 1
-  fi
-  pct=$((100 * count / max))
-  FILL_COUNT=$count
-  FILL_MAX=$max
-  FILL_PCT=$pct
-  if [[ "$pct" -ge "$CRIT_PERCENT" ]]; then
-    FILL_SEVERITY=2
-    return 0
-  fi
-  if [[ "$pct" -ge "$WARN_PERCENT" ]]; then
-    FILL_SEVERITY=1
-    return 0
-  fi
-  FILL_SEVERITY=0
   return 0
 }
 

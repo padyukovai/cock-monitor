@@ -2,7 +2,7 @@
 
 Лёгкая проверка заполненности таблицы **nf_conntrack** на Linux VPS с алертами в **Telegram**. Запуск по расписанию (**systemd timer** или **cron**), без постоянного демона, без Prometheus/Grafana и без привязки к MTProxy.
 
-Требования: **bash**, **curl**. Опционально пакет **conntrack** (утилита `conntrack -S` для строки в сообщении и для опциональных алертов по счётчикам).
+Требования: **bash**, **curl**. Опционально пакет **conntrack** (утилита `conntrack -S` для строки в сообщении и для опциональных алертов по счётчикам). Для команд бота **`/status`** в Telegram нужны **Python 3** (только стандартная библиотека) и опциональный **systemd timer** (или строка в **cron**), см. ниже.
 
 ## Быстрая установка (Ubuntu / Debian)
 
@@ -10,8 +10,8 @@
 
    ```bash
    sudo mkdir -p /opt/cock-monitor
-   sudo cp -a bin systemd config.example.env README.md /opt/cock-monitor/
-   sudo chmod +x /opt/cock-monitor/bin/check-conntrack.sh
+   sudo cp -a bin lib telegram_bot systemd config.example.env README.md /opt/cock-monitor/
+   sudo chmod +x /opt/cock-monitor/bin/check-conntrack.sh /opt/cock-monitor/bin/cock-status.sh
    ```
 
 2. Создайте конфиг с секретами:
@@ -30,7 +30,7 @@
    sudo chmod 700 /var/lib/cock-monitor
    ```
 
-   Путь задаётся в `STATE_FILE` в `/etc/cock-monitor.env` (по умолчанию `/var/lib/cock-monitor/state`).
+   Путь задаётся в `STATE_FILE` в `/etc/cock-monitor.env` (по умолчанию `/var/lib/cock-monitor/state`). Для опроса команд Telegram дополнительно пишется файл смещения `getUpdates` (по умолчанию рядом с каталогом state, см. `TELEGRAM_OFFSET_FILE` в [`config.example.env`](config.example.env)).
 
 ### Настройка бота и chat_id
 
@@ -57,6 +57,44 @@ sudo /opt/cock-monitor/bin/check-conntrack.sh --dry-run /etc/cock-monitor.env
 ```
 
 Или в `.env`: `DRY_RUN=1` (тогда токен и chat_id не обязательны). Флаг `--dry-run` удобен для разового прогона поверх боевого `.env`.
+
+Текущий статус conntrack в консоли (без Telegram):
+
+```bash
+sudo /opt/cock-monitor/bin/cock-status.sh /etc/cock-monitor.env
+```
+
+### Опционально: команды в Telegram (`/status`)
+
+Алерты по-прежнему шлёт `check-conntrack.sh` по расписанию. Чтобы **по запросу** получать полный текст статуса в том же чате, включите опрос **getUpdates** без постоянного демона: разовый запуск Python по таймеру.
+
+- Команды обрабатываются только из чата с вашим `TELEGRAM_CHAT_ID` (как и исходящие алерты).
+- Максимальная задержка ответа ≈ периоду таймера (по умолчанию **3 минуты** в [`systemd/cock-monitor-telegram-bot.timer`](systemd/cock-monitor-telegram-bot.timer)).
+- Не включайте **webhook** для того же бота и не запускайте два параллельных опроса с одним токеном.
+
+Установка unit-файлов (пути подправьте при необходимости):
+
+```bash
+sudo install -m644 /opt/cock-monitor/systemd/cock-monitor-telegram-bot.service \
+  /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now cock-monitor-telegram-bot.timer
+systemctl list-timers cock-monitor-telegram-bot.timer --no-pager
+```
+
+Разовая проверка:
+
+```bash
+sudo systemctl start cock-monitor-telegram-bot.service
+sudo systemctl status cock-monitor-telegram-bot.service --no-pager
+```
+
+Ручной запуск того же, что делает service (нужны `PYTHONPATH` и `COCK_MONITOR_HOME`):
+
+```bash
+sudo env PYTHONPATH=/opt/cock-monitor COCK_MONITOR_HOME=/opt/cock-monitor \
+  python3 -m telegram_bot --poll-once /etc/cock-monitor.env
+```
 
 ### Какие файлы в `/proc` читаются
 
@@ -123,7 +161,7 @@ STATS_COOLDOWN_SECONDS=3600
 
 ## Логи и диск
 
-Скрипт сам по себе почти ничего не пишет на диск, кроме небольшого **state**-файла для cooldown. Не включайте избыточное логирование cron в файлы без `logrotate`.
+Скрипт проверки почти ничего не пишет на диск, кроме небольшого **state**-файла для cooldown. При включённом опросе бота добавляется маленький файл **offset** для `getUpdates` (`TELEGRAM_OFFSET_FILE`). Не включайте избыточное логирование cron в файлы без `logrotate`.
 
 ## Критерий успеха
 

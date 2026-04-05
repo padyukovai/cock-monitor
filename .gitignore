@@ -3,3 +3,5 @@
 *.local
 state
 cock-monitor.state
+__pycache__/
+*.py[cod]
