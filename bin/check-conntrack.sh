@@ -58,6 +58,7 @@ state_write() {
     printf 'fill_last_ts=%s\n' "${fill_last_ts}"
     printf 'fill_last_severity=%s\n' "${fill_last_severity}"
     printf 'stats_last_ts=%s\n' "${stats_last_ts}"
+    printf 'la_last_ts=%s\n' "${la_last_ts}"
   } >"$tmp"
   mv "$tmp" "$STATE_FILE"
 }
@@ -215,6 +216,8 @@ main() {
   [[ "$fill_last_severity" =~ ^[0-2]$ ]] || fill_last_severity=0
   stats_last_ts=$(state_get stats_last_ts)
   [[ "$stats_last_ts" =~ ^[0-9]+$ ]] || stats_last_ts=0
+  la_last_ts=$(state_get la_last_ts)
+  [[ "$la_last_ts" =~ ^[0-9]+$ ]] || la_last_ts=0
 
   local fill_severity=0
   local stats_note=""
@@ -341,6 +344,63 @@ VALUES (${now_ts}, ${fp_sql}, ${fc_sql}, ${fm_sql}, 0, 0, 0, 0, 0, 0, NULL, NULL
 SQL
         metrics_retention
         metrics_trim_max_rows
+      fi
+    fi
+  fi
+
+  # --- Load Average alert ---
+  if [[ "$LA_ALERT_ENABLE" == "1" ]]; then
+    local la1
+    la1=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo "0")
+    if awk "BEGIN { exit !(${la1} >= ${LA_WARN_THRESHOLD}) }" 2>/dev/null; then
+      local now_la
+      now_la=$(now_epoch)
+      if ((now_la - la_last_ts >= LA_ALERT_COOLDOWN_SEC)); then
+        local ncpu
+        ncpu=$(nproc 2>/dev/null || echo "?")
+
+        # --- CPU% and shaper state from status file (no extra delay) ---
+        local s_cpu="?" s_rate="?" s_op="hold" s_iface="ens3"
+        local shaper_status_f="${SHAPER_STATUS_FILE:-/var/lib/cock-monitor/cpu_shaper.status}"
+        if [[ -f "$shaper_status_f" ]]; then
+          local _k _v
+          while IFS='=' read -r _k _v; do
+            case "$_k" in
+              cpu_pct)          s_cpu="$_v"   ;;
+              rate_applied_mbit) s_rate="$_v" ;;
+              tc_op)            s_op="$_v"    ;;
+              iface)            s_iface="$_v" ;;
+            esac
+          done < "$shaper_status_f"
+        fi
+        local op_label="стабильно"
+        [[ "$s_op" == "step_down" ]] && op_label="ограничение ↓"
+        [[ "$s_op" == "step_up"   ]] && op_label="восстановление ↑"
+
+        # --- Network TX/RX rate via 1-second /proc/net/dev delta ---
+        local tx_mbit="?" rx_mbit="?"
+        if [[ -f /proc/net/dev ]]; then
+          local rx1 tx1 rx2 tx2
+          rx1=$(awk -v dev="${s_iface}:" '$1==dev {print $2}' /proc/net/dev 2>/dev/null || echo "")
+          tx1=$(awk -v dev="${s_iface}:" '$1==dev {print $10}' /proc/net/dev 2>/dev/null || echo "")
+          sleep 1
+          rx2=$(awk -v dev="${s_iface}:" '$1==dev {print $2}' /proc/net/dev 2>/dev/null || echo "")
+          tx2=$(awk -v dev="${s_iface}:" '$1==dev {print $10}' /proc/net/dev 2>/dev/null || echo "")
+          if [[ "$rx1" =~ ^[0-9]+$ && "$rx2" =~ ^[0-9]+$ && "$rx2" -ge "$rx1" ]]; then
+            rx_mbit=$(( (rx2 - rx1) * 8 / 1000000 ))
+          fi
+          if [[ "$tx1" =~ ^[0-9]+$ && "$tx2" =~ ^[0-9]+$ && "$tx2" -ge "$tx1" ]]; then
+            tx_mbit=$(( (tx2 - tx1) * 8 / 1000000 ))
+          fi
+        fi
+
+        local la_body
+        la_body="⚠️ High Load Average on ${host}"$'\n'
+        la_body+="la1=${la1} (порог: >=${LA_WARN_THRESHOLD}, vCPU: ${ncpu})"$'\n'
+        la_body+="CPU: ${s_cpu}% | Шейпер: ${op_label} @ ${s_rate} Mbit/s"$'\n'
+        la_body+="Трафик ${s_iface}: исходящий (к клиентам) ${tx_mbit} Mbit/s | входящий (от клиентов) ${rx_mbit} Mbit/s"
+        send_telegram "$la_body" || exit 1
+        la_last_ts=$now_la
       fi
     fi
   fi
