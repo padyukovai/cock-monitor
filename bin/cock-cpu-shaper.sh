@@ -239,7 +239,8 @@ main() {
         local emoji="⚠️"
         [[ "$op" == "step_up" ]] && emoji="✅"
         
-        local txt="${emoji} CPU-Aware Shaper on ${host}
+        local moscow_time; moscow_time=$(TZ='Europe/Moscow' date +'%Y-%m-%d %H:%M:%S MSK')
+        local txt="${emoji} CPU-Aware Shaper on ${host} (${moscow_time})
 Operation: ${op}
 CPU Load: ${cpu_pct}% (Target: ${SHAPER_CPU_TARGET_PCT}%)
 Bandwidth: ${cur_rate} Mbit/s ➔ ${next_rate} Mbit/s

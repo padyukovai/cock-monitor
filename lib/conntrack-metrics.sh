@@ -119,7 +119,8 @@ compute_fill_severity() {
 format_full_status_text() {
   local host
   host=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo unknown)
-  printf 'host: %s\n\n' "$host"
+  local now_msk; now_msk=$(TZ='Europe/Moscow' date +'%Y-%m-%d %H:%M:%S MSK')
+  printf 'time: %s\nhost: %s\n\n' "$now_msk" "$host"
   if [[ "$CHECK_CONNTRACK_FILL" == "1" ]]; then
     printf 'conntrack fill: %s%% (%s/%s)\n' "$FILL_PCT" "$FILL_COUNT" "$FILL_MAX"
     case "$FILL_SEVERITY" in

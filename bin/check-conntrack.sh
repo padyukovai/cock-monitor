@@ -242,7 +242,8 @@ main() {
       else
         label="WARNING"
       fi
-      body="${label} conntrack fill on ${host}"$'\n'"${FILL_PCT}% (${FILL_COUNT}/${FILL_MAX}) warn>=${WARN_PERCENT}% crit>=${CRIT_PERCENT}%"
+      local moscow_time; moscow_time=$(TZ='Europe/Moscow' date +'%Y-%m-%d %H:%M:%S MSK')
+      body="${label} conntrack fill on ${host} (${moscow_time})"$'\n'"${FILL_PCT}% (${FILL_COUNT}/${FILL_MAX}) warn>=${WARN_PERCENT}% crit>=${CRIT_PERCENT}%"
       [[ -n "$stats_note" ]] && body+=$'\n'"${stats_note}"
       send_telegram "$body" || exit 1
       fill_last_ts=$(now_epoch)
@@ -395,7 +396,8 @@ SQL
         fi
 
         local la_body
-        la_body="⚠️ High Load Average on ${host}"$'\n'
+        local moscow_time; moscow_time=$(TZ='Europe/Moscow' date +'%Y-%m-%d %H:%M:%S MSK')
+        la_body="⚠️ High Load Average on ${host} (${moscow_time})"$'\n'
         la_body+="la1=${la1} (порог: >=${LA_WARN_THRESHOLD}, vCPU: ${ncpu})"$'\n'
         la_body+="CPU: ${s_cpu}% | Шейпер: ${op_label} @ ${s_rate} Mbit/s"$'\n'
         la_body+="Трафик ${s_iface}: исходящий (к клиентам) ${tx_mbit} Mbit/s | входящий (от клиентов) ${rx_mbit} Mbit/s"
@@ -473,7 +475,8 @@ SQL
 
     if [[ "$stats_fire" -eq 1 ]]; then
       local stats_body
-      stats_body="STATS ${host}"$'\n'"${stats_reason}"$'\n'"$(conntrack_stats_line)"
+      local moscow_time; moscow_time=$(TZ='Europe/Moscow' date +'%Y-%m-%d %H:%M:%S MSK')
+      stats_body="STATS ${host} (${moscow_time})"$'\n'"${stats_reason}"$'\n'"$(conntrack_stats_line)"
       if should_send_stats_alert; then
         send_telegram "$stats_body" || exit 1
         stats_last_ts=$(now_epoch)

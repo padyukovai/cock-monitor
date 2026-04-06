@@ -8,7 +8,7 @@ import socket
 import sqlite3
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -82,7 +82,8 @@ def generate_chart(
         plt.close(fig)
         return
 
-    tz = datetime.now().astimezone().tzinfo or timezone.utc
+    # Use Moscow timezone (UTC+3) regardless of server local time.
+    tz = timezone(timedelta(hours=3), name="MSK")
     ts_list = [datetime.fromtimestamp(r[0], tz=tz) for r in rows]
     fills = [r[1] for r in rows]
 
@@ -206,8 +207,8 @@ def main() -> int:
         if hours <= 0:
             hours = 24
 
-    start_ts = int(time.time()) - hours * 3600
-    title_suffix = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    moscow_tz = timezone(timedelta(hours=3), name="MSK")
+    title_suffix = datetime.now(moscow_tz).strftime("%Y-%m-%d %H:%M MSK")
 
     out_path = args.output
     if out_path is None:
