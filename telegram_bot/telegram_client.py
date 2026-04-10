@@ -40,15 +40,16 @@ class TelegramClient:
             raise RuntimeError(f"getUpdates API error: {body!r}")
         return list(body.get("result") or [])
 
-    def send_message(self, chat_id: str, text: str) -> None:
+    def send_message(self, chat_id: str, text: str, *, parse_mode: str = "") -> None:
         url = self._base + "sendMessage"
-        data = urllib.parse.urlencode(
-            {
-                "chat_id": chat_id,
-                "text": text,
-                "disable_web_page_preview": "true",
-            }
-        ).encode("utf-8")
+        payload: dict[str, str] = {
+            "chat_id": chat_id,
+            "text": text,
+            "disable_web_page_preview": "true",
+        }
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        data = urllib.parse.urlencode(payload).encode("utf-8")
         req = urllib.request.Request(url, data=data, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:

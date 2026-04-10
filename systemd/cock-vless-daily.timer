@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily VLESS traffic report at 00:10 MSK
+
+[Timer]
+# For older systemd versions without Timezone= support:
+# 00:10 MSK (UTC+3, no DST) == 21:10 UTC previous day.
+OnCalendar=*-*-* 21:10:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

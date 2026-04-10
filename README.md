@@ -11,7 +11,7 @@
    ```bash
    sudo mkdir -p /opt/cock-monitor
    sudo cp -a bin lib telegram_bot systemd config.example.env README.md /opt/cock-monitor/
-   sudo chmod +x /opt/cock-monitor/bin/check-conntrack.sh /opt/cock-monitor/bin/cock-status.sh /opt/cock-monitor/bin/cock-daily-chart.py
+   sudo chmod +x /opt/cock-monitor/bin/check-conntrack.sh /opt/cock-monitor/bin/cock-status.sh /opt/cock-monitor/bin/cock-daily-chart.py /opt/cock-monitor/bin/cock-vless-daily-report.py
    ```
 
 2. Создайте конфиг с секретами:
@@ -64,11 +64,12 @@ sudo /opt/cock-monitor/bin/check-conntrack.sh --dry-run /etc/cock-monitor.env
 sudo /opt/cock-monitor/bin/cock-status.sh /etc/cock-monitor.env
 ```
 
-### Опционально: команды в Telegram (`/status`, `/chart`)
+### Опционально: команды в Telegram (`/status`, `/chart`, `/vless_delta`)
 
 Алерты по-прежнему шлёт `check-conntrack.sh` по расписанию. Чтобы **по запросу** получать полный текст статуса в том же чате, включите опрос **getUpdates** без постоянного демона: разовый запуск Python по таймеру.
 
 - **`/chart`** строит PNG за последние 24 часа из `METRICS_DB` тем же скриптом, что и ежедневный таймер; на сервере должен быть установлен **matplotlib**.
+- **`/vless_delta`** запускает `bin/cock-vless-daily-report.py` в режиме `since-last-sent` и отправляет отчёт по VLESS-дельте с момента **предыдущего `/vless_delta` или другого запуска в том же режиме**.
 
 - Команды обрабатываются только из чата с вашим `TELEGRAM_CHAT_ID` (как и исходящие алерты).
 - Максимальная задержка ответа ≈ периоду таймера (по умолчанию **3 минуты** в [`systemd/cock-monitor-telegram-bot.timer`](systemd/cock-monitor-telegram-bot.timer)).
@@ -184,6 +185,54 @@ STATS_COOLDOWN_SECONDS=3600
 
 ```bash
 sudo python3 /opt/cock-monitor/bin/cock-daily-chart.py --env-file /etc/cock-monitor.env --output /tmp/cock.png
+```
+
+### Суточный отчёт по VLESS-клиентам 3x-ui
+
+Скрипт [`bin/cock-vless-daily-report.py`](bin/cock-vless-daily-report.py) читает счётчики `up/down` из `3x-ui` SQLite (`XUI_DB_PATH`) в read-only режиме, сохраняет snapshot в `METRICS_DB`, считает дельты по `email` и отправляет Top потребителей в Telegram.
+
+- Таймзона отчёта задаётся `VLESS_DAILY_TZ` (по умолчанию `Europe/Moscow`).
+- По расписанию: unit-файлы [`systemd/cock-vless-daily.service`](systemd/cock-vless-daily.service) и [`systemd/cock-vless-daily.timer`](systemd/cock-vless-daily.timer), время по умолчанию **00:10 MSK** (для старого `systemd` таймер задаётся как `21:10 UTC`).
+- Таймерный запуск использует `--mode daily` (строго `D` против `D-1` в `VLESS_DAILY_TZ`).
+- Режим `since-last-sent` используется для ручного запроса `/vless_delta` и не влияет на daily-таймер.
+- Пороги «злостного качальщика»: `VLESS_ABUSE_GB` (абсолютный) и `VLESS_ABUSE_SHARE_PCT` (доля от суточного total, с защитным минимумом `VLESS_DAILY_MIN_TOTAL_MB`).
+- На первом запуске делается baseline, полноценный daily-отчёт начинается со следующего запуска.
+
+Установка таймера:
+
+```bash
+sudo install -m644 /opt/cock-monitor/systemd/cock-vless-daily.service \
+  /opt/cock-monitor/systemd/cock-vless-daily.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now cock-vless-daily.timer
+systemctl list-timers cock-vless-daily.timer --no-pager
+```
+
+Ручная проверка без отправки в Telegram:
+
+```bash
+sudo python3 /opt/cock-monitor/bin/cock-vless-daily-report.py --env-file /etc/cock-monitor.env --dry-run
+```
+
+Явно запросить режим `daily` (сравнение `D` против `D-1`):
+
+```bash
+sudo python3 /opt/cock-monitor/bin/cock-vless-daily-report.py --env-file /etc/cock-monitor.env --dry-run --mode daily
+```
+
+Пример содержимого отчёта:
+
+```text
+host123 — VLESS daily usage (MSK): 2026-04-10
+Total: 48.21 GB | Active clients: 17 | Top1 share: 36.9%
+
+Top 10:
+1) user1@example.com — 17.80 GB (36.9%)
+2) user2@example.com — 8.45 GB (17.5%)
+...
+
+Potential heavy downloaders:
+- user1@example.com: 17.80 GB (36.9%)
 ```
 
 ### Умный "CPU-Aware" Шейпер с использованием CAKE

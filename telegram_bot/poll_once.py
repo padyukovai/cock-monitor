@@ -30,6 +30,7 @@ def poll_once(cfg: BotConfig) -> None:
                 status_provider=provider,
                 chart_script=chart_script,
                 env_file=cfg.env_file,
+                monitor_home=cfg.monitor_home,
             )
         next_off = max_id + 1
         write_offset(store_path, next_off)

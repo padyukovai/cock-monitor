@@ -21,8 +21,10 @@ def _command_token(text: str) -> str | None:
 
 
 HELP_TEXT = (
-    "cock-monitor bot: /status — full conntrack status; "
-    "/chart — PNG for last 24h from metrics DB (needs matplotlib). "
+    "cock-monitor bot commands:\n"
+    "/status — full conntrack status\n"
+    "/chart — PNG for last 24h from metrics DB (needs matplotlib)\n"
+    "/vless_delta — VLESS usage delta since last sent report\n\n"
     "Alerts still come from the scheduled check."
 )
 
@@ -35,6 +37,7 @@ def handle_update(
     status_provider: StatusProvider,
     chart_script: Path | None = None,
     env_file: Path | None = None,
+    monitor_home: Path | None = None,
 ) -> None:
     msg = update.get("message")
     if not isinstance(msg, dict):
@@ -92,6 +95,41 @@ def handle_update(
                 Path(tmp_path).unlink(missing_ok=True)
             except OSError:
                 pass
+        return
+
+    if cmd == "/vless_delta":
+        if env_file is None:
+            client.send_message(str(chat_id), "/vless_delta is not configured (env file missing).")
+            return
+        report_script = (
+            (monitor_home / "bin" / "cock-vless-daily-report.py")
+            if monitor_home is not None
+            else Path("/opt/cock-monitor/bin/cock-vless-daily-report.py")
+        )
+        if not report_script.is_file():
+            report_script = Path("/opt/cock-monitor/bin/cock-vless-daily-report.py")
+        if not report_script.is_file():
+            client.send_message(str(chat_id), "VLESS report script missing on server.")
+            return
+        r = subprocess.run(
+            [
+                sys.executable,
+                str(report_script),
+                "--env-file",
+                str(env_file),
+                "--send-telegram",
+                "--mode",
+                "since-last-sent",
+            ],
+            cwd=str(report_script.resolve().parent.parent),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        if r.returncode != 0:
+            err = (r.stderr or r.stdout or "unknown error")[:1500]
+            client.send_message(str(chat_id), f"vless_delta failed:\n{err}")
         return
 
     if cmd != "/status":
