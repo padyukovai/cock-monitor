@@ -1,0 +1,31 @@
+# Append these flags to the mtproto-proxy ExecStart line (same binary invocation),
+# or merge into your wrapper script. Order does not matter for most flags.
+# After edit: systemctl daemon-reload && systemctl restart mtproto.service
+#
+# IMPORTANT (mtproxy-0.02): if Linux PIDs exceed 65535 (common after long uptime with
+# kernel.pid_max=4194304), the proxy aborts with:
+#   init_common_PID: Assertion `!(p & 0xffff0000)' failed.
+# Fix: reboot the VPS (resets PID counter), or use a patched MTProxy build; lowering
+# pid_max below existing PIDs is not viable on a live system.
+#
+# Defaults in mtproxy-0.02 are aggressive on small VMs:
+#   --msg-buffers-size 268435456  (256 MiB)
+#   --cpu-threads 8, --io-threads 16
+#
+# Suggested coexistence with 3x-ui on ~1 vCPU / ~700 MiB RAM class VPS.
+# Live snapshot (sofia): TCP inuse often 2.7k–3.4k+; nf_conntrack_count ~5k–8k / 131072;
+# counters show heavy historical drop/early_drop — keep -c and accept-rate sane.
+
+--msg-buffers-size 50331648
+--cpu-threads 1
+--io-threads 2
+--nice 5
+
+# Limit total accepted clients (raise if you need more; lowers conntrack pressure).
+-c 10000
+
+# Mitigate SYN/portscan storms sharing the same conntrack table as VPN.
+--max-accept-rate 100
+
+# If you use multiple -M workers, also cap per-worker special conns, e.g.:
+# -C 2048

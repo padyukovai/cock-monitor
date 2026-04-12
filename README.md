@@ -192,11 +192,19 @@ sudo python3 /opt/cock-monitor/bin/cock-daily-chart.py --env-file /etc/cock-moni
 Скрипт [`bin/cock-vless-daily-report.py`](bin/cock-vless-daily-report.py) читает счётчики `up/down` из `3x-ui` SQLite (`XUI_DB_PATH`) в read-only режиме, сохраняет snapshot в `METRICS_DB`, считает дельты по `email` и отправляет Top потребителей в Telegram.
 
 - Таймзона отчёта задаётся `VLESS_DAILY_TZ` (по умолчанию `Europe/Moscow`).
+- Время в тексте Telegram (например момент последней отправки в `since-last-sent`) показывается в `VLESS_TELEGRAM_DISPLAY_TZ` (по умолчанию `Europe/Moscow`), независимо от TZ контейнера 3x-ui.
 - По расписанию: unit-файлы [`systemd/cock-vless-daily.service`](systemd/cock-vless-daily.service) и [`systemd/cock-vless-daily.timer`](systemd/cock-vless-daily.timer), время по умолчанию **00:10 MSK** (для старого `systemd` таймер задаётся как `21:10 UTC`).
 - Таймерный запуск использует `--mode daily` (строго `D` против `D-1` в `VLESS_DAILY_TZ`).
 - Режим `since-last-sent` используется для ручного запроса `/vless_delta` и не влияет на daily-таймер.
 - Пороги «злостного качальщика»: `VLESS_ABUSE_GB` (абсолютный) и `VLESS_ABUSE_SHARE_PCT` (доля от суточного total, с защитным минимумом `VLESS_DAILY_MIN_TOTAL_MB`).
 - На первом запуске делается baseline, полноценный daily-отчёт начинается со следующего запуска.
+
+Опционально: **уникальные IP по `email`** (детект шаринга конфига). Нужен Xray `access.log` на хосте (например bind-mount файла в `/app/access.log` в контейнере 3x-ui) и переменные:
+
+- `VLESS_ACCESS_LOG_PATH` — путь к access.log на хосте.
+- **Всё по московскому времени:** держите `VLESS_DAILY_TZ=Europe/Moscow` и запускайте контейнер 3x-ui/Xray с `TZ=Europe/Moscow`, чтобы строки в `access.log` были в MSK; тогда `VLESS_ACCESS_LOG_TZ` можно не задавать (по умолчанию совпадёт с `VLESS_DAILY_TZ`). Если контейнер остаётся в другой TZ, задайте `VLESS_ACCESS_LOG_TZ` в ту TZ, **в которой реально пишутся** метки времени в логе (иначе в stderr будет `ip_lines_matched=0` при живом логе — сдвиг интерпретации времени).
+- `VLESS_IP_TOP_K` — размер отдельного топа по числу уникальных IP (по умолчанию 3).
+- `VLESS_IP_PARSE_MAX_MB` — лимит чтения лога за один запуск (`daily`: с начала файла; `since-last-sent`: хвост; защита для слабых VPS).
 
 Установка таймера:
 

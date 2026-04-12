@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import argparse
 import html
+import ipaddress
 import json
 import os
+import re
 import socket
 import sqlite3
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone, tzinfo
+from datetime import date, datetime, time as dt_time, timedelta, timezone, tzinfo
 from pathlib import Path
 
 try:
@@ -77,7 +79,207 @@ def _load_tz(tz_name: str) -> tzinfo:
             pass
     if tz_name == "Europe/Moscow":
         return timezone(timedelta(hours=3), name="MSK")
+    if tz_name == "Asia/Tehran":
+        return timezone(timedelta(hours=3, minutes=30), name="IRST")
     raise ValueError(f"invalid or unsupported timezone: {tz_name!r}")
+
+
+@dataclass(frozen=True)
+class IpParseStats:
+    elapsed_ms: int
+    bytes_read: int
+    lines_matched: int
+    truncated: bool
+
+
+def _read_file_slice(path: Path, max_bytes: int, *, from_tail: bool) -> tuple[bytes, bool]:
+    """Read up to max_bytes from file start (daily) or end (since-last). Returns (data, truncated)."""
+    try:
+        with path.open("rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            if size <= max_bytes:
+                f.seek(0)
+                return f.read(), False
+            if from_tail:
+                start = max(0, size - max_bytes)
+                f.seek(start)
+                data = f.read()
+                truncated = start > 0
+                if truncated and b"\n" in data:
+                    nl = data.find(b"\n")
+                    data = data[nl + 1 :]
+                return data, truncated
+            f.seek(0)
+            data = f.read(max_bytes)
+            return data, True
+    except OSError:
+        return b"", False
+
+
+def _parse_access_ts(raw: str) -> datetime | None:
+    raw = raw.strip()
+    for fmt in ("%Y/%m/%d %H:%M:%S.%f", "%Y/%m/%d %H:%M:%S"):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _extract_ip_from_from_field(line: str) -> str | None:
+    idx = line.find(" from ")
+    if idx < 0:
+        return None
+    rest = line[idx + 6 :].strip()
+    if not rest:
+        return None
+    token = rest.split()[0]
+    if token.startswith(("tcp:", "udp:")):
+        parts = token.split(":", 1)
+        if len(parts) < 2:
+            return None
+        token = parts[1]
+    if token.startswith("["):
+        close = token.find("]")
+        if close < 0:
+            return None
+        return token[1:close].strip()
+    if ":" in token:
+        host, _, _ = token.rpartition(":")
+        return host.strip() or None
+    return None
+
+
+def _extract_access_email(line: str) -> str | None:
+    if " email:" not in line:
+        return None
+    tail = line.rsplit(" email:", 1)[-1].strip()
+    if not tail:
+        return None
+    return tail.split()[0].strip()
+
+
+def _normalize_client_ip(raw: str) -> tuple[str, str] | None:
+    """Return (family, value) where family is '4' or '6' and value is normalized string."""
+    raw = raw.strip()
+    if not raw:
+        return None
+    try:
+        addr = ipaddress.ip_address(raw)
+    except ValueError:
+        return None
+    if addr.version == 4:
+        return ("4", str(addr))
+    mapped = ipaddress.IPv6Address(addr).ipv4_mapped
+    if mapped is not None:
+        return ("4", str(mapped))
+    return ("6", str(ipaddress.IPv6Address(addr).compressed))
+
+
+def aggregate_vless_access_ips(
+    paths: list[Path],
+    *,
+    window_start_utc: datetime,
+    window_end_utc: datetime,
+    window_left_exclusive: bool,
+    log_tz: tzinfo,
+    allowed_emails: set[str],
+    max_bytes_per_file: int,
+    read_from_tail: bool,
+) -> tuple[dict[str, tuple[set[str], set[str]]], IpParseStats]:
+    """Aggregate unique IPv4/IPv6 per email from Xray access.log-style lines."""
+    t0 = time.perf_counter()
+    combined: dict[str, tuple[set[str], set[str]]] = {}
+    bytes_read = 0
+    lines_matched = 0
+    truncated_any = False
+
+    for path in paths:
+        if not path.is_file():
+            continue
+        raw, truncated = _read_file_slice(path, max_bytes_per_file, from_tail=read_from_tail)
+        bytes_read += len(raw)
+        truncated_any = truncated_any or truncated
+        text = raw.decode("utf-8", errors="replace")
+        for line in text.splitlines():
+            if " email:" not in line:
+                continue
+            ts_end = line.find(" from ")
+            if ts_end < 0:
+                continue
+            ts_raw = line[:ts_end].strip()
+            dt_naive = _parse_access_ts(ts_raw)
+            if dt_naive is None:
+                continue
+            if dt_naive.tzinfo is not None:
+                dt_naive = dt_naive.replace(tzinfo=None)
+            log_dt = dt_naive.replace(tzinfo=log_tz).astimezone(timezone.utc)
+            if window_left_exclusive:
+                if log_dt > window_end_utc:
+                    break
+                if not (log_dt > window_start_utc and log_dt <= window_end_utc):
+                    continue
+            else:
+                if log_dt >= window_end_utc:
+                    break
+                if not (log_dt >= window_start_utc and log_dt < window_end_utc):
+                    continue
+            email = _extract_access_email(line)
+            if not email or email not in allowed_emails:
+                continue
+            ip_raw = _extract_ip_from_from_field(line)
+            if not ip_raw:
+                continue
+            norm = _normalize_client_ip(ip_raw)
+            if norm is None:
+                continue
+            fam, val = norm
+            if email not in combined:
+                combined[email] = (set(), set())
+            v4s, v6s = combined[email]
+            if fam == "4":
+                v4s.add(val)
+            else:
+                v6s.add(val)
+            lines_matched += 1
+
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+    return combined, IpParseStats(
+        elapsed_ms=elapsed_ms,
+        bytes_read=bytes_read,
+        lines_matched=lines_matched,
+        truncated=truncated_any,
+    )
+
+
+def _daily_window_utc(prev_day_iso: str, snapshot_day_iso: str, tz_daily: tzinfo) -> tuple[datetime, datetime]:
+    d0 = date.fromisoformat(prev_day_iso)
+    d1 = date.fromisoformat(snapshot_day_iso)
+    start = datetime.combine(d0, dt_time.min, tzinfo=tz_daily).astimezone(timezone.utc)
+    end = datetime.combine(d1, dt_time.min, tzinfo=tz_daily).astimezone(timezone.utc)
+    return start, end
+
+
+def _shrink_telegram_html(text: str, max_len: int = 4000) -> str:
+    if len(text) <= max_len:
+        return text
+    cut = re.sub(
+        r"\n\n<b>Top \d+ by unique IP.*?(?=\n\n<b>Potential heavy|\n\n<i>Note:|\Z)",
+        "",
+        text,
+        flags=re.S,
+    )
+    if len(cut) > max_len:
+        cut = re.sub(
+            r"\n\n<b>Potential heavy downloaders</b>:.*?(?=\n\n<i>Note:|\Z)",
+            "",
+            cut,
+            flags=re.S,
+        )
+    if len(cut) > max_len:
+        cut = cut[: max_len - 3] + "..."
+    return cut
 
 
 def _fmt_bytes(num: int) -> str:
@@ -324,6 +526,9 @@ def build_report(
     abuse_gb: float,
     abuse_share_pct: float,
     min_total_mb: int,
+    ip_counts: dict[str, tuple[int, int]] | None = None,
+    ip_top_k: int = 3,
+    ip_truncated: bool = False,
 ) -> tuple[str, int, int, str, int]:
     def esc(s: str) -> str:
         return html.escape(s, quote=False)
@@ -357,6 +562,8 @@ def build_report(
     top1_delta = top[0][1] if top else 0
     top1_share = (top1_delta * 100.0 / total_delta) if total_delta > 0 else 0.0
 
+    delta_lookup: dict[str, int] = {e: d for e, d, _ in deltas}
+
     lines: list[str] = []
     lines.append(f"<b>{esc(host)} — {esc(title)}</b>")
     lines.append(f"<i>{esc(subtitle)}</i>")
@@ -374,12 +581,47 @@ def build_report(
             continue
         rank += 1
         share = (delta * 100.0 / total_delta) if total_delta > 0 else 0.0
+        ip_suffix = ""
+        if ip_counts is not None:
+            n4, n6 = ip_counts.get(email, (0, 0))
+            ip_suffix = (
+                f" | <b>IP4</b> <code>{n4}</code> <b>IP6</b> <code>{n6}</code> "
+                f"<b>IPΣ</b> <code>{n4 + n6}</code>"
+            )
         lines.append(
             f"{rank}) <code>{esc(email)}</code> — <b>{_fmt_bytes(delta)}</b> "
-            f"(<code>{share:.1f}%</code>)"
+            f"(<code>{share:.1f}%</code>){ip_suffix}"
         )
     if rank == 0:
         lines.append("No positive usage detected for this day.")
+
+    if ip_counts is not None and ip_top_k > 0:
+        ip_candidates: list[tuple[str, int, int, int, int]] = []
+        for email, (n4, n6) in ip_counts.items():
+            sigma = n4 + n6
+            if sigma <= 0:
+                continue
+            ip_candidates.append(
+                (email, sigma, n4, n6, int(delta_lookup.get(email, 0)))
+            )
+        ip_candidates.sort(key=lambda x: (-x[1], -x[4]))
+        top_ip = ip_candidates[: max(1, ip_top_k)]
+        if top_ip:
+            lines.append("")
+            lines.append(
+                f"<b>Top {max(1, ip_top_k)} by unique IP (IPv4+IPv6)</b>:"
+            )
+            for i, (email, sigma, n4, n6, dlt) in enumerate(top_ip, start=1):
+                lines.append(
+                    f"{i}) <code>{esc(email)}</code> — <b>IPΣ</b> <code>{sigma}</code> "
+                    f"(<b>IP4</b> <code>{n4}</code> <b>IP6</b> <code>{n6}</code>) "
+                    f"| <b>traffic Δ</b> <code>{_fmt_bytes(dlt)}</code>"
+                )
+        if ip_truncated:
+            lines.append("")
+            lines.append(
+                "<i>Note: IP log tail truncated by VLESS_IP_PARSE_MAX_MB; counts may be incomplete.</i>"
+            )
 
     threshold_bytes = int(abuse_gb * 1024 * 1024 * 1024)
     min_total_bytes = int(min_total_mb * 1024 * 1024)
@@ -413,8 +655,7 @@ def build_report(
         )
 
     text = "\n".join(lines)
-    if len(text) > 4000:
-        text = text[:3997] + "..."
+    text = _shrink_telegram_html(text, max_len=4000)
     return text, active, total_delta, top1_email, top1_delta
 
 
@@ -502,12 +743,24 @@ def main() -> int:
     abuse_gb = max(0.0, _get_float_env("VLESS_ABUSE_GB", 20.0))
     abuse_share_pct = max(0.0, _get_float_env("VLESS_ABUSE_SHARE_PCT", 40.0))
     min_total_mb = max(0, _get_int_env("VLESS_DAILY_MIN_TOTAL_MB", 500))
+    ip_top_k = max(1, _get_int_env("VLESS_IP_TOP_K", 3))
+    ip_parse_max_mb = max(1, _get_int_env("VLESS_IP_PARSE_MAX_MB", 256))
+    ip_parse_max_bytes = ip_parse_max_mb * 1024 * 1024
 
     try:
         tz = _load_tz(tz_name)
     except ValueError:
         print(f"cock-vless-daily-report: invalid VLESS_DAILY_TZ={tz_name!r}", file=sys.stderr)
         return 1
+
+    telegram_tz_name = (
+        os.environ.get("VLESS_TELEGRAM_DISPLAY_TZ", "Europe/Moscow").strip() or "Europe/Moscow"
+    )
+    try:
+        telegram_display_tz = _load_tz(telegram_tz_name)
+    except ValueError:
+        telegram_display_tz = _load_tz("Europe/Moscow")
+        telegram_tz_name = "Europe/Moscow"
 
     now = datetime.now(tz)
     snapshot_day = now.date().isoformat()
@@ -557,6 +810,7 @@ def main() -> int:
         ensure_report_tables(met_conn)
         upsert_snapshot(met_conn, snapshot_day_msk=snapshot_day, ts=ts, rows=rows)
         current_map = {r.email: r.total for r in rows}
+        last_sent_ts: int | None = None
         if args.mode == "daily":
             prev_map = get_snapshot_map(met_conn, prev_day)
             report_title = f"VLESS daily usage ({tz_name}): {usage_day}"
@@ -565,11 +819,94 @@ def main() -> int:
             last_sent_ts = get_last_sent_checkpoint_ts(met_conn, source="since_last_sent")
             prev_map = get_checkpoint_map(met_conn, last_sent_ts) if last_sent_ts else {}
             if last_sent_ts:
-                last_dt = datetime.fromtimestamp(last_sent_ts, tz=tz).strftime("%Y-%m-%d %H:%M:%S")
-                report_subtitle = f"Delta period: since last sent report at {last_dt}"
+                last_dt = (
+                    datetime.fromtimestamp(last_sent_ts, tz=timezone.utc)
+                    .astimezone(telegram_display_tz)
+                    .strftime("%Y-%m-%d %H:%M:%S")
+                )
+                report_subtitle = (
+                    f"Delta period: since last sent report at {last_dt} ({telegram_tz_name})"
+                )
             else:
                 report_subtitle = "Delta period: since last sent report (no baseline yet)"
             report_title = f"VLESS delta since last report ({tz_name})"
+
+        ip_counts: dict[str, tuple[int, int]] | None = None
+        ip_truncated = False
+        if prev_map:
+            log_path_raw = os.environ.get("VLESS_ACCESS_LOG_PATH", "").strip()
+            if log_path_raw:
+                log_path = Path(log_path_raw)
+                log_paths: list[Path] = []
+                if log_path.is_file():
+                    log_paths.append(log_path)
+                prev_log = os.environ.get("VLESS_ACCESS_LOG_PATH_PREV", "").strip()
+                if prev_log:
+                    pp = Path(prev_log)
+                    if pp.is_file():
+                        log_paths.append(pp)
+                else:
+                    alt = Path(str(log_path) + ".1")
+                    if alt.is_file():
+                        log_paths.append(alt)
+                if not log_paths:
+                    print(
+                        f"cock-vless-daily-report: VLESS_ACCESS_LOG_PATH not a readable file: {log_path_raw!r}",
+                        file=sys.stderr,
+                    )
+                else:
+                    log_tz_name = os.environ.get("VLESS_ACCESS_LOG_TZ", "").strip() or tz_name
+                    try:
+                        log_tz = _load_tz(log_tz_name)
+                    except ValueError:
+                        print(
+                            f"cock-vless-daily-report: invalid VLESS_ACCESS_LOG_TZ={log_tz_name!r}",
+                            file=sys.stderr,
+                        )
+                        log_tz = tz
+                    allowed_emails = vless_emails if vless_emails else set(current_map.keys())
+                    if args.mode == "daily":
+                        w0, w1 = _daily_window_utc(prev_day, snapshot_day, tz)
+                        agg, ip_stats = aggregate_vless_access_ips(
+                            log_paths,
+                            window_start_utc=w0,
+                            window_end_utc=w1,
+                            window_left_exclusive=False,
+                            log_tz=log_tz,
+                            allowed_emails=allowed_emails,
+                            max_bytes_per_file=ip_parse_max_bytes,
+                            read_from_tail=False,
+                        )
+                    else:
+                        if last_sent_ts is not None:
+                            end_ts = time.time()
+                            w0 = datetime.fromtimestamp(last_sent_ts, tz=timezone.utc)
+                            w1 = datetime.fromtimestamp(end_ts, tz=timezone.utc)
+                            agg, ip_stats = aggregate_vless_access_ips(
+                                log_paths,
+                                window_start_utc=w0,
+                                window_end_utc=w1,
+                                window_left_exclusive=True,
+                                log_tz=log_tz,
+                                allowed_emails=allowed_emails,
+                                max_bytes_per_file=ip_parse_max_bytes,
+                                read_from_tail=True,
+                            )
+                        else:
+                            agg, ip_stats = {}, IpParseStats(0, 0, 0, False)
+                    ip_counts = (
+                        {e: (len(v4), len(v6)) for e, (v4, v6) in agg.items()} if agg else None
+                    )
+                    ip_truncated = ip_stats.truncated
+                    print(
+                        "cock-vless-daily-report: "
+                        f"ip_parse_ms={ip_stats.elapsed_ms} "
+                        f"ip_bytes_read={ip_stats.bytes_read} "
+                        f"ip_lines_matched={ip_stats.lines_matched} "
+                        f"ip_truncated={1 if ip_stats.truncated else 0}",
+                        file=sys.stderr,
+                    )
+
         report_text, active_clients, total_delta, top1_email, top1_delta = build_report(
             host=socket.gethostname(),
             title=report_title,
@@ -580,6 +917,9 @@ def main() -> int:
             abuse_gb=abuse_gb,
             abuse_share_pct=abuse_share_pct,
             min_total_mb=min_total_mb,
+            ip_counts=ip_counts,
+            ip_top_k=ip_top_k,
+            ip_truncated=ip_truncated,
         )
 
         if args.dry_run or not args.send_telegram:
