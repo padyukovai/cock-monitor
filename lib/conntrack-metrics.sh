@@ -40,6 +40,241 @@ apply_defaults() {
   LA_ALERT_ENABLE="${LA_ALERT_ENABLE:-0}"
   LA_WARN_THRESHOLD="${LA_WARN_THRESHOLD:-1.5}"
   LA_ALERT_COOLDOWN_SEC="${LA_ALERT_COOLDOWN_SEC:-600}"
+  # cock-status / Telegram /status: max lines from `ip -s link show dev <iface>` (RX/TX drops/errors).
+  STATUS_IP_LINK_HEAD_LINES="${STATUS_IP_LINK_HEAD_LINES:-22}"
+  # check-conntrack METRICS_DB: collect first line of `tc qdisc show dev <iface> root` (0 = skip).
+  METRICS_COLLECT_TC_QDISC="${METRICS_COLLECT_TC_QDISC:-1}"
+  # STATS Telegram: treat SHAPER_STATUS_FILE as fresh if ts= within this many minutes (0 = ignore mtime of ts).
+  STATS_ALERT_SHAPER_MAX_AGE_MIN="${STATS_ALERT_SHAPER_MAX_AGE_MIN:-15}"
+}
+
+# Read /proc/meminfo field value in kB (second column). Prints nothing if missing.
+_meminfo_kb() {
+  local key=$1
+  [[ -r /proc/meminfo ]] || return 0
+  awk -v k="$key" '$1 == k { print $2; exit }' /proc/meminfo 2>/dev/null || true
+}
+
+# sockstat line label is e.g. "TCP:" or "TCP6:"; key is e.g. inuse, orphan, tw. Prints value or nothing.
+_sockstat_field() {
+  local label=$1 key=$2
+  [[ -r /proc/net/sockstat ]] || return 0
+  awk -v lbl="$label" -v want="$key" '
+    $1 == lbl {
+      for (i = 2; i < NF; i += 2)
+        if ($(i) == want) {
+          print $(i + 1)
+          exit
+        }
+    }' /proc/net/sockstat 2>/dev/null || true
+}
+
+# Fills METRICS_DB_* for host_samples row (check-conntrack.sh). Read-only /proc and optional tc/shaper file.
+metrics_collect_host_for_db() {
+  METRICS_DB_LOAD1=""
+  METRICS_DB_MEM_AVAIL_KB=""
+  METRICS_DB_SWAP_USED_KB=""
+  METRICS_DB_TCP_INUSE=""
+  METRICS_DB_TCP_ORPHAN=""
+  METRICS_DB_TCP_TW=""
+  METRICS_DB_TCP6_INUSE=""
+  METRICS_DB_SHAPER_RATE_MBIT=""
+  METRICS_DB_SHAPER_CPU_PCT=""
+  METRICS_DB_TC_QDISC_ROOT=""
+
+  if [[ -r /proc/loadavg ]]; then
+    METRICS_DB_LOAD1=$(awk '{print $1}' /proc/loadavg 2>/dev/null || true)
+  fi
+
+  local ma st sf v
+  ma=$(_meminfo_kb 'MemAvailable:')
+  st=$(_meminfo_kb 'SwapTotal:')
+  sf=$(_meminfo_kb 'SwapFree:')
+  [[ -n "$ma" && "$ma" =~ ^[0-9]+$ ]] && METRICS_DB_MEM_AVAIL_KB=$ma
+  if [[ -n "$st" && "$st" =~ ^[0-9]+$ && -n "$sf" && "$sf" =~ ^[0-9]+$ ]]; then
+    METRICS_DB_SWAP_USED_KB=$((st - sf))
+  fi
+
+  v=$(_sockstat_field 'TCP:' inuse)
+  [[ -n "$v" && "$v" =~ ^[0-9]+$ ]] && METRICS_DB_TCP_INUSE=$v
+  v=$(_sockstat_field 'TCP:' orphan)
+  [[ -n "$v" && "$v" =~ ^[0-9]+$ ]] && METRICS_DB_TCP_ORPHAN=$v
+  v=$(_sockstat_field 'TCP:' tw)
+  [[ -n "$v" && "$v" =~ ^[0-9]+$ ]] && METRICS_DB_TCP_TW=$v
+  v=$(_sockstat_field 'TCP6:' inuse)
+  [[ -n "$v" && "$v" =~ ^[0-9]+$ ]] && METRICS_DB_TCP6_INUSE=$v
+
+  local shf="${SHAPER_STATUS_FILE:-/var/lib/cock-monitor/cpu_shaper.status}"
+  if [[ -f "$shf" ]]; then
+    local _k _v
+    while IFS='=' read -r _k _v || [[ -n "$_k" ]]; do
+      case "$_k" in
+        rate_applied_mbit) METRICS_DB_SHAPER_RATE_MBIT="${_v//$'\r'/}" ;;
+        cpu_pct) METRICS_DB_SHAPER_CPU_PCT="${_v//$'\r'/}" ;;
+      esac
+    done <"$shf"
+  fi
+
+  if [[ "${METRICS_COLLECT_TC_QDISC:-1}" == "1" ]] && command -v tc >/dev/null 2>&1; then
+    local ifc="${SHAPER_IFACE:-ens3}"
+    v=$(tc qdisc show dev "$ifc" root 2>/dev/null | head -n1 | tr -d '\r' || true)
+    if [[ -n "$v" ]]; then
+      if [[ "${#v}" -gt 400 ]]; then
+        METRICS_DB_TC_QDISC_ROOT="${v:0:400}"
+      else
+        METRICS_DB_TC_QDISC_ROOT=$v
+      fi
+    fi
+  fi
+}
+
+# Short host context for STATS Telegram alerts (load, mem/swap, TCP line, shaper). Prints 3–5 lines to stdout.
+format_stats_alert_host_context() {
+  local load1="" ma="" st="" sf="" tcp_line=""
+  if [[ -r /proc/loadavg ]]; then
+    load1=$(awk '{print $1}' /proc/loadavg 2>/dev/null || true)
+  fi
+  ma=$(_meminfo_kb 'MemAvailable:')
+  st=$(_meminfo_kb 'SwapTotal:')
+  sf=$(_meminfo_kb 'SwapFree:')
+  printf 'load1=%s' "${load1:-n/a}"
+  if [[ -n "$ma" && "$ma" =~ ^[0-9]+$ ]]; then
+    printf ' MemAvailable=%s kB' "$ma"
+  else
+    printf ' MemAvailable=n/a'
+  fi
+  if [[ -n "$st" && "$st" =~ ^[0-9]+$ && -n "$sf" && "$sf" =~ ^[0-9]+$ ]]; then
+    printf ' swap_used=%s/%s kB' "$((st - sf))" "$st"
+  else
+    printf ' swap=n/a'
+  fi
+  printf '\n'
+  if [[ -r /proc/net/sockstat ]]; then
+    tcp_line=$(grep -m1 '^TCP:' /proc/net/sockstat 2>/dev/null | tr -d '\r' || true)
+    if [[ -n "$tcp_line" ]]; then
+      [[ "${#tcp_line}" -gt 220 ]] && tcp_line="${tcp_line:0:220}..."
+      printf '%s\n' "$tcp_line"
+    else
+      printf 'sockstat TCP: (no line)\n'
+    fi
+  else
+    printf 'sockstat TCP: n/a\n'
+  fi
+
+  local shf="${SHAPER_STATUS_FILE:-/var/lib/cock-monitor/cpu_shaper.status}"
+  local max_min="${STATS_ALERT_SHAPER_MAX_AGE_MIN:-15}"
+  [[ "$max_min" =~ ^[0-9]+$ ]] || max_min=15
+  local fts="" fr="" fcpu="" k v
+  if [[ -f "$shf" ]]; then
+    while IFS='=' read -r k v || [[ -n "$k" ]]; do
+      case "$k" in
+        ts) fts="${v//$'\r'/}" ;;
+        rate_applied_mbit) fr="${v//$'\r'/}" ;;
+        cpu_pct) fcpu="${v//$'\r'/}" ;;
+      esac
+    done <"$shf"
+  fi
+  local now age lim fresh=0
+  now=$(date +%s 2>/dev/null) || now=0
+  if [[ -f "$shf" ]] && [[ -n "$fr" || -n "$fcpu" ]]; then
+    if [[ "$max_min" -eq 0 ]]; then
+      fresh=1
+    elif [[ "$fts" =~ ^[0-9]+$ ]]; then
+      age=$((now - fts))
+      lim=$((max_min * 60))
+      if [[ "$age" -le "$lim" ]]; then
+        fresh=1
+      fi
+    fi
+  fi
+  if [[ "$fresh" -eq 1 ]]; then
+    printf 'shaper: %s Mbit/s cpu=%s%%\n' "${fr:-?}" "${fcpu:-?}"
+  else
+    printf 'shaper: no data\n'
+  fi
+}
+
+# Effective WAN iface for status: STATUS_WAN_IFACE, else SHAPER_IFACE, else ens3.
+_status_wan_iface() {
+  if [[ -n "${STATUS_WAN_IFACE:-}" ]]; then
+    printf '%s' "$STATUS_WAN_IFACE"
+  elif [[ -n "${SHAPER_IFACE:-}" ]]; then
+    printf '%s' "$SHAPER_IFACE"
+  else
+    printf '%s' 'ens3'
+  fi
+}
+
+# Host RAM/swap, loadavg, TCP sockstat, optional ip -s link, optional systemd units (compact, read-only).
+_append_host_snapshot_to_status() {
+  printf '\n--- Host snapshot ---\n'
+
+  local ma st sf
+  ma=$(_meminfo_kb 'MemAvailable:')
+  st=$(_meminfo_kb 'SwapTotal:')
+  sf=$(_meminfo_kb 'SwapFree:')
+  if [[ -r /proc/meminfo ]]; then
+    printf 'mem:'
+    if [[ -n "$ma" && "$ma" =~ ^[0-9]+$ ]]; then
+      printf ' MemAvailable=%s kB' "$ma"
+    else
+      printf ' MemAvailable=(n/a)'
+    fi
+    if [[ -n "$st" && "$st" =~ ^[0-9]+$ && -n "$sf" && "$sf" =~ ^[0-9]+$ ]]; then
+      printf ' | swap used=%s/%s kB (free %s kB)' "$((st - sf))" "$st" "$sf"
+    elif [[ -n "$st" || -n "$sf" ]]; then
+      printf ' | swap SwapTotal=%s kB SwapFree=%s kB' "${st:-?}" "${sf:-?}"
+    fi
+    printf '\n'
+  else
+    printf 'mem: (/proc/meminfo not readable)\n'
+  fi
+
+  if [[ -r /proc/loadavg ]]; then
+    printf 'loadavg: %s\n' "$(tr -d '\r' </proc/loadavg)"
+  else
+    printf 'loadavg: (/proc/loadavg not readable)\n'
+  fi
+
+  if [[ -r /proc/net/sockstat ]]; then
+    printf 'sockstat:\n'
+    grep -E '^(TCP|TCP6):' /proc/net/sockstat 2>/dev/null | head -n 4 || printf '(no TCP lines)\n'
+  else
+    printf 'sockstat: (/proc/net/sockstat not readable)\n'
+  fi
+
+  local wan_iface ip_lines
+  wan_iface=$(_status_wan_iface)
+  ip_lines="${STATUS_IP_LINK_HEAD_LINES:-22}"
+  [[ "$ip_lines" =~ ^[0-9]+$ ]] || ip_lines=22
+  [[ "$ip_lines" -gt 60 ]] && ip_lines=60
+  [[ "$ip_lines" -lt 8 ]] && ip_lines=8
+  printf '\nWAN iface %s (ip -s link, first %s lines):\n' "$wan_iface" "$ip_lines"
+  if command -v ip >/dev/null 2>&1; then
+    if ip link show dev "$wan_iface" >/dev/null 2>&1; then
+      ip -s link show dev "$wan_iface" 2>/dev/null | head -n "$ip_lines" || printf '(ip -s link failed)\n'
+    else
+      printf '(interface not found)\n'
+    fi
+  else
+    printf '(ip command not found)\n'
+  fi
+
+  if [[ -n "${STATUS_EXTRA_UNITS:-}" ]]; then
+    printf '\nextra units (STATUS_EXTRA_UNITS):\n'
+    local u act ts
+    for u in ${STATUS_EXTRA_UNITS}; do
+      [[ -z "$u" ]] && continue
+      if command -v systemctl >/dev/null 2>&1; then
+        act=$(systemctl is-active "$u" 2>/dev/null || printf '%s' '?')
+        ts=$(systemctl show "$u" -p ActiveEnterTimestamp --value 2>/dev/null || true)
+        [[ -z "$ts" ]] && ts='?'
+        printf '  %s: %s | ActiveEnter=%s\n' "$u" "$act" "$ts"
+      else
+        printf '  %s: (systemctl not found)\n' "$u"
+      fi
+    done
+  fi
 }
 
 # Unsigned 32-bit counter delta (conntrack stats may wrap).
@@ -120,7 +355,9 @@ format_full_status_text() {
   local host
   host=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo unknown)
   local now_msk; now_msk=$(TZ='Europe/Moscow' date +'%Y-%m-%d %H:%M:%S MSK')
-  printf 'time: %s\nhost: %s\n\n' "$now_msk" "$host"
+  printf 'time: %s\nhost: %s\n' "$now_msk" "$host"
+  _append_host_snapshot_to_status
+  printf '\n'
   if [[ "$CHECK_CONNTRACK_FILL" == "1" ]]; then
     printf 'conntrack fill: %s%% (%s/%s)\n' "$FILL_PCT" "$FILL_COUNT" "$FILL_MAX"
     case "$FILL_SEVERITY" in

@@ -4,4 +4,10 @@
 state
 cock-monitor.state
 __pycache__/
+bin/__pycache__/
 *.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store

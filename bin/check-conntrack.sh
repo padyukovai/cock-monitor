@@ -158,6 +158,21 @@ CREATE TABLE IF NOT EXISTS conntrack_samples (
   delta_search_restart INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_samples_ts ON conntrack_samples(ts);
+CREATE TABLE IF NOT EXISTS host_samples (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,
+  load1 REAL,
+  mem_avail_kb INTEGER,
+  swap_used_kb INTEGER,
+  tcp_inuse INTEGER,
+  tcp_orphan INTEGER,
+  tcp_tw INTEGER,
+  tcp6_inuse INTEGER,
+  shaper_rate_mbit REAL,
+  shaper_cpu_pct INTEGER,
+  tc_qdisc_root TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_host_samples_ts ON host_samples(ts);
 SQL
 }
 
@@ -171,7 +186,7 @@ metrics_retention() {
   local cutoff now
   now=$(now_epoch)
   cutoff=$((now - METRICS_RETENTION_DAYS * 86400))
-  sqlite3 "$METRICS_DB" "DELETE FROM conntrack_samples WHERE ts < ${cutoff};" 2>/dev/null || true
+  sqlite3 "$METRICS_DB" "DELETE FROM conntrack_samples WHERE ts < ${cutoff}; DELETE FROM host_samples WHERE ts < ${cutoff};" 2>/dev/null || true
 }
 
 metrics_trim_max_rows() {
@@ -179,9 +194,35 @@ metrics_trim_max_rows() {
   sqlite3 "$METRICS_DB" "DELETE FROM conntrack_samples WHERE id NOT IN (SELECT id FROM conntrack_samples ORDER BY id DESC LIMIT ${METRICS_MAX_ROWS});" 2>/dev/null || true
 }
 
+# Remove host rows whose timestamp no longer exists in conntrack_samples (after row-count trim).
+metrics_host_trim_orphans() {
+  sqlite3 "$METRICS_DB" "DELETE FROM host_samples WHERE ts NOT IN (SELECT ts FROM conntrack_samples);" 2>/dev/null || true
+}
+
 # Emit a non-negative integer or the SQL keyword NULL (no quotes).
 metrics_sql_uint_or_null() {
   [[ "$1" =~ ^[0-9]+$ ]] && printf '%s' "$1" || printf 'NULL'
+}
+
+# Signed/unsigned integer for optional host columns.
+metrics_sql_int_or_null() {
+  [[ "$1" =~ ^-?[0-9]+$ ]] && printf '%s' "$1" || printf 'NULL'
+}
+
+# Non-negative decimal for load1 / shaper rate.
+metrics_sql_real_or_null() {
+  [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$|^[0-9]*\.[0-9]+$ ]] && printf '%s' "$1" || printf 'NULL'
+}
+
+# SQL string literal or NULL (escape ' as '').
+metrics_sql_quoted_text_or_null() {
+  local s=$1
+  if [[ -z "$s" ]]; then
+    printf 'NULL'
+    return 0
+  fi
+  local esc="${s//\'/\'\'}"
+  printf "'%s'" "$esc"
 }
 
 main() {
@@ -313,38 +354,60 @@ main() {
         fi
       fi
 
-      if [[ "$do_insert" -eq 1 && "$has_ct" -eq 1 ]]; then
-        local iv_sql sql_dd sql_di sql_de sql_derr sql_dinv sql_dsr
-        if [[ -n "$interval_sec" && "$interval_sec" -gt 0 ]]; then
-          iv_sql=$interval_sec
-          sql_dd=$(metrics_sql_uint_or_null "$dd")
-          sql_di=$(metrics_sql_uint_or_null "$di")
-          sql_de=$(metrics_sql_uint_or_null "$de")
-          sql_derr=$(metrics_sql_uint_or_null "$derr")
-          sql_dinv=$(metrics_sql_uint_or_null "$dinv")
-          sql_dsr=$(metrics_sql_uint_or_null "$dsr")
-        else
-          iv_sql="NULL"
-          sql_dd="NULL"
-          sql_di="NULL"
-          sql_de="NULL"
-          sql_derr="NULL"
-          sql_dinv="NULL"
-          sql_dsr="NULL"
-        fi
-        sqlite3 "$METRICS_DB" <<SQL
+      if [[ "$do_insert" -eq 1 ]]; then
+        metrics_collect_host_for_db
+        local hl hm hsw hti hto htt h6 hr hc htcq
+        hl=$(metrics_sql_real_or_null "${METRICS_DB_LOAD1:-}")
+        hm=$(metrics_sql_int_or_null "${METRICS_DB_MEM_AVAIL_KB:-}")
+        hsw=$(metrics_sql_int_or_null "${METRICS_DB_SWAP_USED_KB:-}")
+        hti=$(metrics_sql_int_or_null "${METRICS_DB_TCP_INUSE:-}")
+        hto=$(metrics_sql_int_or_null "${METRICS_DB_TCP_ORPHAN:-}")
+        htt=$(metrics_sql_int_or_null "${METRICS_DB_TCP_TW:-}")
+        h6=$(metrics_sql_int_or_null "${METRICS_DB_TCP6_INUSE:-}")
+        hr=$(metrics_sql_real_or_null "${METRICS_DB_SHAPER_RATE_MBIT:-}")
+        hc=$(metrics_sql_int_or_null "${METRICS_DB_SHAPER_CPU_PCT:-}")
+        htcq=$(metrics_sql_quoted_text_or_null "${METRICS_DB_TC_QDISC_ROOT:-}")
+
+        if [[ "$has_ct" -eq 1 ]]; then
+          local iv_sql sql_dd sql_di sql_de sql_derr sql_dinv sql_dsr
+          if [[ -n "$interval_sec" && "$interval_sec" -gt 0 ]]; then
+            iv_sql=$interval_sec
+            sql_dd=$(metrics_sql_uint_or_null "$dd")
+            sql_di=$(metrics_sql_uint_or_null "$di")
+            sql_de=$(metrics_sql_uint_or_null "$de")
+            sql_derr=$(metrics_sql_uint_or_null "$derr")
+            sql_dinv=$(metrics_sql_uint_or_null "$dinv")
+            sql_dsr=$(metrics_sql_uint_or_null "$dsr")
+          else
+            iv_sql="NULL"
+            sql_dd="NULL"
+            sql_di="NULL"
+            sql_de="NULL"
+            sql_derr="NULL"
+            sql_dinv="NULL"
+            sql_dsr="NULL"
+          fi
+          sqlite3 "$METRICS_DB" <<SQL
+BEGIN IMMEDIATE;
 INSERT INTO conntrack_samples (ts, fill_pct, fill_count, fill_max, "drop", insert_failed, early_drop, "error", invalid, search_restart, interval_sec, delta_drop, delta_insert_failed, delta_early_drop, delta_error, delta_invalid, delta_search_restart)
 VALUES (${now_ts}, ${fp_sql}, ${fc_sql}, ${fm_sql}, ${drop_sum}, ${if_sum}, ${ed_sum}, ${er_sum}, ${inv_sum}, ${sr_sum}, ${iv_sql}, ${sql_dd}, ${sql_di}, ${sql_de}, ${sql_derr}, ${sql_dinv}, ${sql_dsr});
+INSERT INTO host_samples (ts, load1, mem_avail_kb, swap_used_kb, tcp_inuse, tcp_orphan, tcp_tw, tcp6_inuse, shaper_rate_mbit, shaper_cpu_pct, tc_qdisc_root)
+VALUES (${now_ts}, ${hl}, ${hm}, ${hsw}, ${hti}, ${hto}, ${htt}, ${h6}, ${hr}, ${hc}, ${htcq});
+COMMIT;
 SQL
-        metrics_retention
-        metrics_trim_max_rows
-      elif [[ "$do_insert" -eq 1 && "$has_ct" -eq 0 ]]; then
-        sqlite3 "$METRICS_DB" <<SQL
+        else
+          sqlite3 "$METRICS_DB" <<SQL
+BEGIN IMMEDIATE;
 INSERT INTO conntrack_samples (ts, fill_pct, fill_count, fill_max, "drop", insert_failed, early_drop, "error", invalid, search_restart, interval_sec, delta_drop, delta_insert_failed, delta_early_drop, delta_error, delta_invalid, delta_search_restart)
 VALUES (${now_ts}, ${fp_sql}, ${fc_sql}, ${fm_sql}, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+INSERT INTO host_samples (ts, load1, mem_avail_kb, swap_used_kb, tcp_inuse, tcp_orphan, tcp_tw, tcp6_inuse, shaper_rate_mbit, shaper_cpu_pct, tc_qdisc_root)
+VALUES (${now_ts}, ${hl}, ${hm}, ${hsw}, ${hti}, ${hto}, ${htt}, ${h6}, ${hr}, ${hc}, ${htcq});
+COMMIT;
 SQL
+        fi
         metrics_retention
         metrics_trim_max_rows
+        metrics_host_trim_orphans
       fi
     fi
   fi
@@ -476,7 +539,7 @@ SQL
     if [[ "$stats_fire" -eq 1 ]]; then
       local stats_body
       local moscow_time; moscow_time=$(TZ='Europe/Moscow' date +'%Y-%m-%d %H:%M:%S MSK')
-      stats_body="STATS ${host} (${moscow_time})"$'\n'"${stats_reason}"$'\n'"$(conntrack_stats_line)"
+      stats_body="STATS ${host} (${moscow_time})"$'\n'"${stats_reason}"$'\n'"$(conntrack_stats_line)"$'\n'"$(format_stats_alert_host_context)"
       if should_send_stats_alert; then
         send_telegram "$stats_body" || exit 1
         stats_last_ts=$(now_epoch)
