@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic MTProxy collect run (cock-monitor)
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from mtproxy_module.core import connect_db, init_schema
 from telegram_bot.config import BotConfig
 from telegram_bot.handlers import handle_update
 from telegram_bot.offset_store import read_offset, write_offset
@@ -17,6 +18,10 @@ def poll_once(cfg: BotConfig) -> None:
         env_file=cfg.env_file,
         cock_status_sh=script,
     )
+    mtproxy_conn = None
+    if cfg.mtproxy.enabled:
+        mtproxy_conn = connect_db(cfg.mtproxy.db_path)
+        init_schema(mtproxy_conn)
     while True:
         updates = client.get_updates(next_off, timeout=0)
         if not updates:
@@ -31,6 +36,10 @@ def poll_once(cfg: BotConfig) -> None:
                 chart_script=chart_script,
                 env_file=cfg.env_file,
                 monitor_home=cfg.monitor_home,
+                mtproxy_cfg=cfg.mtproxy,
+                mtproxy_conn=mtproxy_conn,
             )
         next_off = max_id + 1
         write_offset(store_path, next_off)
+    if mtproxy_conn is not None:
+        mtproxy_conn.close()

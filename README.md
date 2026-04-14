@@ -99,6 +99,52 @@ sudo env PYTHONPATH=/opt/cock-monitor COCK_MONITOR_HOME=/opt/cock-monitor \
   python3 -m telegram_bot --poll-once /etc/cock-monitor.env
 ```
 
+### Опциональный модуль MTProxy
+
+`cock-monitor` может работать как единая экосистема и для conntrack, и для MTProxy, без второго poller-а Telegram.  
+Включение делается через `.env`:
+
+```env
+MTPROXY_ENABLE=1
+MTPROXY_PORT=8443
+MTPROXY_MAX_CONNECTIONS_PER_IP=20
+MTPROXY_MAX_UNIQUE_IPS=50
+MTPROXY_ALERT_COOLDOWN_MINUTES=30
+MTPROXY_DAILY_TOP_N=10
+```
+
+Команды Telegram (в том же общем `/help`):
+
+- `/mt_status` — текущий статус MTProxy
+- `/mt_today` — отчёт + PNG за последние 24 часа
+- `/mt_threshold warning 30` — изменить порог per-IP
+- `/mt_threshold critical 100` — изменить порог unique IPs
+
+Пороги `/mt_threshold` сохраняются в `METRICS_DB` (таблица `mtproxy_state`) и применяются как для команд, так и для алертов коллектора.
+
+Таблицы модуля в общем `METRICS_DB`:
+
+- `mtproxy_metrics`
+- `mtproxy_alerts`
+- `mtproxy_state`
+- `mtproxy_ip_geo_cache`
+
+Таймеры модуля:
+
+- [`systemd/cock-mtproxy-monitor.timer`](systemd/cock-mtproxy-monitor.timer) + [`systemd/cock-mtproxy-monitor.service`](systemd/cock-mtproxy-monitor.service) — сбор/алерты (каждые 5 минут)
+- [`systemd/cock-mtproxy-daily.timer`](systemd/cock-mtproxy-daily.timer) + [`systemd/cock-mtproxy-daily.service`](systemd/cock-mtproxy-daily.service) — суточный отчёт в Telegram
+
+Установка unit-файлов:
+
+```bash
+sudo install -m644 /opt/cock-monitor/systemd/cock-mtproxy-monitor.service \
+  /opt/cock-monitor/systemd/cock-mtproxy-monitor.timer \
+  /opt/cock-monitor/systemd/cock-mtproxy-daily.service \
+  /opt/cock-monitor/systemd/cock-mtproxy-daily.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now cock-mtproxy-monitor.timer cock-mtproxy-daily.timer
+```
+
 ### Какие файлы в `/proc` читаются
 
 | Путь | Назначение |

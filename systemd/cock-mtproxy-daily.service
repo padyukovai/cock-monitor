@@ -1,0 +1,13 @@
+[Unit]
+Description=cock-monitor MTProxy daily report to Telegram (oneshot)
+Documentation=file:///opt/cock-monitor/README.md
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/etc/cock-monitor.env
+Environment=PYTHONPATH=/opt/cock-monitor
+WorkingDirectory=/opt/cock-monitor
+ExecStart=/usr/bin/python3 /opt/cock-monitor/bin/cock-mtproxy-daily.py --env-file /etc/cock-monitor.env --hours 24 --send-telegram
+

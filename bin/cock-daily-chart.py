@@ -206,6 +206,7 @@ def main() -> int:
             hours = 24
         if hours <= 0:
             hours = 24
+    start_ts = int(time.time()) - hours * 3600
 
     moscow_tz = timezone(timedelta(hours=3), name="MSK")
     title_suffix = datetime.now(moscow_tz).strftime("%Y-%m-%d %H:%M MSK")

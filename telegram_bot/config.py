@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from mtproxy_module.core import MtproxyConfig
+
 
 def _parse_env_file(path: Path) -> dict[str, str]:
     out: dict[str, str] = {}
@@ -35,10 +37,12 @@ def default_offset_path(env: Mapping[str, str]) -> str:
 @dataclass(frozen=True)
 class BotConfig:
     env_file: Path
+    env: Mapping[str, str]
     bot_token: str
     chat_id: str
     offset_file: Path
     monitor_home: Path
+    mtproxy: MtproxyConfig
 
     @classmethod
     def from_env_file(cls, env_path: Path) -> BotConfig:
@@ -54,8 +58,10 @@ class BotConfig:
         home = os.environ.get("COCK_MONITOR_HOME", "/opt/cock-monitor")
         return cls(
             env_file=env_path,
+            env=raw,
             bot_token=token,
             chat_id=chat_id,
             offset_file=Path(offset).expanduser(),
             monitor_home=Path(home).expanduser().resolve(),
+            mtproxy=MtproxyConfig.from_env_map(raw),
         )
