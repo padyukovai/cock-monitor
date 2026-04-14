@@ -116,11 +116,16 @@ send_telegram() {
 
 build_json_line() {
   local ts_iso=$1 ts_epoch=$2 host=$3 level=$4
-  printf '{"ts":"%s","ts_epoch":%s,"host":%s,"sampler":"incident-sampler","version":"1","level":"%s","ping":%s,"dns":{"host":%s,"ok":%s,"latency_ms":%s,"error":%s},"conntrack":{"count":%s,"max":%s,"fill_pct":%s},"tcp":{"estab":%s,"syn_recv":%s,"time_wait":%s},"load1":%s,"mem_avail_kb":%s,"units":%s}\n' \
+  printf '{"ts":"%s","ts_epoch":%s,"host":%s,"sampler":"incident-sampler","version":"1","level":"%s","ping":%s,"ping_groups":%s,"dns":{"host":%s,"ok":%s,"latency_ms":%s,"error":%s},"conntrack":{"count":%s,"max":%s,"fill_pct":%s},"tcp":{"estab":%s,"syn_recv":%s,"time_wait":%s},"tcp_probe":{"enabled":%s,"targets":{"local":%s,"external":%s},"totals":{"all":{"total":%s,"fails":%s},"local":{"total":%s,"fails":%s},"external":{"total":%s,"fails":%s}},"checks":%s},"load1":%s,"mem_avail_kb":%s,"units":%s}\n' \
     "$ts_iso" "$ts_epoch" "$(incident_json_quote "$host")" "$level" "$INCIDENT_PING_JSON" \
+    "$INCIDENT_PING_GROUPS_JSON" \
     "$(incident_json_quote "$INCIDENT_DNS_HOST")" "$INCIDENT_DNS_OK" "$INCIDENT_DNS_LATENCY_MS" "$(incident_json_quote "$INCIDENT_DNS_ERROR")" \
     "$INCIDENT_CONNTRACK_COUNT" "$INCIDENT_CONNTRACK_MAX" "$INCIDENT_CONNTRACK_FILL_PCT" \
     "$INCIDENT_TCP_ESTAB" "$INCIDENT_TCP_SYN_RECV" "$INCIDENT_TCP_TIME_WAIT" \
+    "$INCIDENT_TCP_PROBE_ENABLED" "$(incident_json_quote "$INCIDENT_TCP_PROBE_LOCAL_TARGET_EFF")" "$(incident_json_quote "$INCIDENT_TCP_PROBE_EXTERNAL_TARGET_EFF")" \
+    "$INCIDENT_TCP_PROBE_TOTAL" "$INCIDENT_TCP_PROBE_FAILS" \
+    "$INCIDENT_TCP_PROBE_LOCAL_TOTAL" "$INCIDENT_TCP_PROBE_LOCAL_FAILS" \
+    "$INCIDENT_TCP_PROBE_EXTERNAL_TOTAL" "$INCIDENT_TCP_PROBE_EXTERNAL_FAILS" "$INCIDENT_TCP_PROBE_JSON" \
     "$INCIDENT_LOAD1" "$INCIDENT_MEM_AVAIL_KB" "$INCIDENT_UNITS_JSON"
 }
 
@@ -128,7 +133,9 @@ compute_level() {
   local level="OK"
   if (( INCIDENT_CONNTRACK_FILL_PCT >= INCIDENT_CONNTRACK_CRIT_PCT )); then
     level="CRIT"
-  elif (( INCIDENT_CONNTRACK_FILL_PCT >= INCIDENT_CONNTRACK_WARN_PCT )) || (( INCIDENT_PING_MAX_LOSS >= INCIDENT_PING_LOSS_WARN_PCT )) || (( state_dns_fail_streak >= INCIDENT_DNS_FAIL_STREAK_WARN )); then
+  elif (( INCIDENT_TCP_PROBE_ENABLED == 1 )) && (( INCIDENT_TCP_PROBE_CRIT_FAILS > 0 )) && (( INCIDENT_TCP_PROBE_FAILS >= INCIDENT_TCP_PROBE_CRIT_FAILS )); then
+    level="CRIT"
+  elif (( INCIDENT_CONNTRACK_FILL_PCT >= INCIDENT_CONNTRACK_WARN_PCT )) || (( INCIDENT_PING_MAX_LOSS >= INCIDENT_PING_LOSS_WARN_PCT )) || (( state_dns_fail_streak >= INCIDENT_DNS_FAIL_STREAK_WARN )) || (( INCIDENT_TCP_PROBE_ENABLED == 1 && INCIDENT_TCP_PROBE_FAILS >= INCIDENT_TCP_PROBE_WARN_FAILS )); then
     level="WARN"
   fi
   printf '%s' "$level"
@@ -149,7 +156,10 @@ time: $(incident_now_iso_utc)
 conntrack: ${INCIDENT_CONNTRACK_COUNT}/${INCIDENT_CONNTRACK_MAX} (${INCIDENT_CONNTRACK_FILL_PCT}%)
 ping max loss: ${INCIDENT_PING_MAX_LOSS}%
 dns: ok=${INCIDENT_DNS_OK} streak=${state_dns_fail_streak} err=${INCIDENT_DNS_ERROR}
-tcp: estab=${INCIDENT_TCP_ESTAB} syn_recv=${INCIDENT_TCP_SYN_RECV} tw=${INCIDENT_TCP_TIME_WAIT}"
+tcp: estab=${INCIDENT_TCP_ESTAB} syn_recv=${INCIDENT_TCP_SYN_RECV} tw=${INCIDENT_TCP_TIME_WAIT}
+tcp-probe all: ${INCIDENT_TCP_PROBE_FAILS}/${INCIDENT_TCP_PROBE_TOTAL} failed
+tcp-probe local: ${INCIDENT_TCP_PROBE_LOCAL_FAILS}/${INCIDENT_TCP_PROBE_LOCAL_TOTAL} target=${INCIDENT_TCP_PROBE_LOCAL_TARGET_EFF}
+tcp-probe external: ${INCIDENT_TCP_PROBE_EXTERNAL_FAILS}/${INCIDENT_TCP_PROBE_EXTERNAL_TOTAL} target=${INCIDENT_TCP_PROBE_EXTERNAL_TARGET_EFF}"
     send_telegram "$text"
     state_last_alert_ts=$now_ts
   fi
@@ -203,9 +213,11 @@ main() {
   state_load
 
   incident_collect_ping
+  incident_collect_ping_groups
   incident_collect_dns
   incident_collect_conntrack
   incident_collect_ss
+  incident_collect_tcp_probes
   incident_collect_load_mem
   incident_collect_units
 

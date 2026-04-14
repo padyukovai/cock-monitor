@@ -9,9 +9,19 @@ incident_apply_defaults() {
   INCIDENT_STATE_FILE="${INCIDENT_STATE_FILE:-/var/lib/cock-monitor/incident_sampler.state}"
 
   INCIDENT_PING_TARGETS="${INCIDENT_PING_TARGETS:-1.1.1.1 8.8.8.8}"
+  INCIDENT_PING_INTERNAL_TARGETS="${INCIDENT_PING_INTERNAL_TARGETS:-}"
+  INCIDENT_PING_EXTERNAL_TARGETS="${INCIDENT_PING_EXTERNAL_TARGETS:-$INCIDENT_PING_TARGETS}"
+  # Keep legacy top-level ping fields based on external targets.
+  INCIDENT_PING_TARGETS="$INCIDENT_PING_EXTERNAL_TARGETS"
   INCIDENT_PING_COUNT="${INCIDENT_PING_COUNT:-2}"
   INCIDENT_PING_TIMEOUT_SEC="${INCIDENT_PING_TIMEOUT_SEC:-1}"
   INCIDENT_PING_LOSS_WARN_PCT="${INCIDENT_PING_LOSS_WARN_PCT:-20}"
+  INCIDENT_TCP_PROBE_LOCAL_TARGET="${INCIDENT_TCP_PROBE_LOCAL_TARGET:-127.0.0.1}"
+  INCIDENT_TCP_PROBE_EXTERNAL_TARGET="${INCIDENT_TCP_PROBE_EXTERNAL_TARGET:-}"
+  INCIDENT_TCP_PROBE_PORTS="${INCIDENT_TCP_PROBE_PORTS:-}"
+  INCIDENT_TCP_PROBE_TIMEOUT_SEC="${INCIDENT_TCP_PROBE_TIMEOUT_SEC:-2}"
+  INCIDENT_TCP_PROBE_WARN_FAILS="${INCIDENT_TCP_PROBE_WARN_FAILS:-1}"
+  INCIDENT_TCP_PROBE_CRIT_FAILS="${INCIDENT_TCP_PROBE_CRIT_FAILS:-0}"
 
   INCIDENT_DNS_HOST="${INCIDENT_DNS_HOST:-api.telegram.org}"
   INCIDENT_DNS_TIMEOUT_SEC="${INCIDENT_DNS_TIMEOUT_SEC:-2}"
@@ -138,6 +148,162 @@ incident_collect_ping() {
   done
   json+="]"
   INCIDENT_PING_JSON="$json"
+}
+
+incident_detect_default_gateway() {
+  local gw
+  gw=$(ip -4 route show default 2>/dev/null | awk '/^default/ {for (i=1; i<=NF; i++) if ($i=="via" && (i+1)<=NF) {print $(i+1); exit}}')
+  if [[ -z "$gw" ]]; then
+    gw=$(ip route show default 2>/dev/null | awk '/^default/ {for (i=1; i<=NF; i++) if ($i=="via" && (i+1)<=NF) {print $(i+1); exit}}')
+  fi
+  printf '%s' "$gw"
+}
+
+incident_collect_ping_group_data() {
+  local targets=$1
+  INCIDENT_PING_GROUP_CHECKS_JSON="[]"
+  INCIDENT_PING_GROUP_MAX_LOSS=0
+  INCIDENT_PING_GROUP_AVG_LOSS=0
+  INCIDENT_PING_GROUP_TARGETS_TOTAL=0
+  INCIDENT_PING_GROUP_TARGETS_FAILED=0
+
+  [[ -n "${targets// }" ]] || return 0
+
+  local first=1 target tuple tx rx loss avg
+  local sum_loss=0
+  local json="["
+  for target in $targets; do
+    INCIDENT_PING_GROUP_TARGETS_TOTAL=$((INCIDENT_PING_GROUP_TARGETS_TOTAL + 1))
+    tuple=$(incident_collect_ping_one "$target")
+    IFS='|' read -r tx rx loss avg <<<"$tuple"
+    (( loss > INCIDENT_PING_GROUP_MAX_LOSS )) && INCIDENT_PING_GROUP_MAX_LOSS=$loss
+    sum_loss=$((sum_loss + loss))
+    (( loss >= 100 )) && INCIDENT_PING_GROUP_TARGETS_FAILED=$((INCIDENT_PING_GROUP_TARGETS_FAILED + 1))
+    (( first == 0 )) && json+=","
+    first=0
+    json+="{\"target\":$(incident_json_quote "$target"),\"tx\":${tx},\"rx\":${rx},\"loss_pct\":${loss},\"avg_ms\":${avg}}"
+  done
+  json+="]"
+  INCIDENT_PING_GROUP_CHECKS_JSON="$json"
+  if (( INCIDENT_PING_GROUP_TARGETS_TOTAL > 0 )); then
+    INCIDENT_PING_GROUP_AVG_LOSS=$((sum_loss / INCIDENT_PING_GROUP_TARGETS_TOTAL))
+  fi
+}
+
+incident_build_ping_group_json() {
+  local group_name=$1
+  local targets=$2
+  local group_error=$3
+  incident_collect_ping_group_data "$targets"
+  printf '{"checks":%s,"rollup":{"targets_total":%s,"targets_failed":%s,"max_loss_pct":%s,"avg_loss_pct":%s},"error":%s}' \
+    "$INCIDENT_PING_GROUP_CHECKS_JSON" \
+    "$INCIDENT_PING_GROUP_TARGETS_TOTAL" \
+    "$INCIDENT_PING_GROUP_TARGETS_FAILED" \
+    "$INCIDENT_PING_GROUP_MAX_LOSS" \
+    "$INCIDENT_PING_GROUP_AVG_LOSS" \
+    "$(incident_json_quote "$group_error")"
+}
+
+incident_collect_ping_groups() {
+  INCIDENT_PING_GROUPS_JSON='{"gateway":{"checks":[],"rollup":{"targets_total":0,"targets_failed":0,"max_loss_pct":0,"avg_loss_pct":0},"error":"not_collected"},"internal":{"checks":[],"rollup":{"targets_total":0,"targets_failed":0,"max_loss_pct":0,"avg_loss_pct":0},"error":"not_collected"},"external":{"checks":[],"rollup":{"targets_total":0,"targets_failed":0,"max_loss_pct":0,"avg_loss_pct":0},"error":"not_collected"}}'
+
+  local gateway_target gateway_error internal_error external_error
+  gateway_target=$(incident_detect_default_gateway)
+  gateway_error=""
+  internal_error=""
+  external_error=""
+
+  if [[ -z "$gateway_target" ]]; then
+    gateway_error="default_gateway_not_found"
+  fi
+  if [[ -z "${INCIDENT_PING_INTERNAL_TARGETS// }" ]]; then
+    internal_error="no_targets"
+  fi
+  if [[ -z "${INCIDENT_PING_EXTERNAL_TARGETS// }" ]]; then
+    external_error="no_targets"
+  fi
+
+  local gateway_json internal_json external_json
+  gateway_json=$(incident_build_ping_group_json "gateway" "$gateway_target" "$gateway_error")
+  internal_json=$(incident_build_ping_group_json "internal" "$INCIDENT_PING_INTERNAL_TARGETS" "$internal_error")
+  external_json=$(incident_build_ping_group_json "external" "$INCIDENT_PING_EXTERNAL_TARGETS" "$external_error")
+
+  INCIDENT_PING_GROUPS_JSON=$(printf '{"gateway":%s,"internal":%s,"external":%s}' "$gateway_json" "$internal_json" "$external_json")
+}
+
+incident_collect_tcp_probe_one() {
+  local host=$1
+  local port=$2
+  local timeout_sec="${INCIDENT_TCP_PROBE_TIMEOUT_SEC}"
+  local ts_start ts_end elapsed ok err
+  ok=0
+  err=""
+  ts_start=$(date +%s%3N 2>/dev/null || true)
+  if timeout "${timeout_sec}s" bash -c "exec 3<>/dev/tcp/${host}/${port}" >/dev/null 2>&1; then
+    ok=1
+  else
+    ok=0
+    err="connect_failed"
+  fi
+  ts_end=$(date +%s%3N 2>/dev/null || true)
+  elapsed=0
+  if incident_is_int "$ts_start" && incident_is_int "$ts_end" && (( ts_end >= ts_start )); then
+    elapsed=$((ts_end - ts_start))
+  fi
+  printf '%s|%s|%s' "$ok" "$elapsed" "$err"
+}
+
+incident_collect_tcp_probes() {
+  INCIDENT_TCP_PROBE_ENABLED=0
+  INCIDENT_TCP_PROBE_LOCAL_TARGET_EFF="$INCIDENT_TCP_PROBE_LOCAL_TARGET"
+  INCIDENT_TCP_PROBE_EXTERNAL_TARGET_EFF="$INCIDENT_TCP_PROBE_EXTERNAL_TARGET"
+  INCIDENT_TCP_PROBE_TOTAL=0
+  INCIDENT_TCP_PROBE_FAILS=0
+  INCIDENT_TCP_PROBE_LOCAL_TOTAL=0
+  INCIDENT_TCP_PROBE_LOCAL_FAILS=0
+  INCIDENT_TCP_PROBE_EXTERNAL_TOTAL=0
+  INCIDENT_TCP_PROBE_EXTERNAL_FAILS=0
+  INCIDENT_TCP_PROBE_JSON="[]"
+
+  [[ -n "${INCIDENT_TCP_PROBE_PORTS// }" ]] || return 0
+  INCIDENT_TCP_PROBE_ENABLED=1
+
+  local first=1 port tuple ok latency err target scope
+  local json="["
+  for scope in local external; do
+    if [[ "$scope" == "local" ]]; then
+      target="$INCIDENT_TCP_PROBE_LOCAL_TARGET_EFF"
+    else
+      target="$INCIDENT_TCP_PROBE_EXTERNAL_TARGET_EFF"
+    fi
+    [[ -n "${target// }" ]] || continue
+    for port in $INCIDENT_TCP_PROBE_PORTS; do
+      INCIDENT_TCP_PROBE_TOTAL=$((INCIDENT_TCP_PROBE_TOTAL + 1))
+      if [[ "$scope" == "local" ]]; then
+        INCIDENT_TCP_PROBE_LOCAL_TOTAL=$((INCIDENT_TCP_PROBE_LOCAL_TOTAL + 1))
+      else
+        INCIDENT_TCP_PROBE_EXTERNAL_TOTAL=$((INCIDENT_TCP_PROBE_EXTERNAL_TOTAL + 1))
+      fi
+      tuple=$(incident_collect_tcp_probe_one "$target" "$port")
+      IFS='|' read -r ok latency err <<<"$tuple"
+      incident_is_int "$ok" || ok=0
+      incident_is_int "$latency" || latency=0
+      [[ -n "$err" ]] || err=""
+      if (( ok == 0 )); then
+        INCIDENT_TCP_PROBE_FAILS=$((INCIDENT_TCP_PROBE_FAILS + 1))
+        if [[ "$scope" == "local" ]]; then
+          INCIDENT_TCP_PROBE_LOCAL_FAILS=$((INCIDENT_TCP_PROBE_LOCAL_FAILS + 1))
+        else
+          INCIDENT_TCP_PROBE_EXTERNAL_FAILS=$((INCIDENT_TCP_PROBE_EXTERNAL_FAILS + 1))
+        fi
+      fi
+      (( first == 0 )) && json+=","
+      first=0
+      json+="{\"scope\":$(incident_json_quote "$scope"),\"target\":$(incident_json_quote "$target"),\"port\":${port},\"ok\":${ok},\"latency_ms\":${latency},\"error\":$(incident_json_quote "$err")}"
+    done
+  done
+  json+="]"
+  INCIDENT_TCP_PROBE_JSON="$json"
 }
 
 incident_collect_ss() {

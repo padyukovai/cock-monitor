@@ -24,6 +24,23 @@ def _max_ping_loss(ping: object) -> int:
     return m
 
 
+def _group_rollup(row: dict, group: str) -> tuple[int, int]:
+    ping_groups = row.get("ping_groups")
+    if not isinstance(ping_groups, dict):
+        return (0, 0)
+    g = ping_groups.get(group)
+    if not isinstance(g, dict):
+        return (0, 0)
+    rollup = g.get("rollup")
+    if not isinstance(rollup, dict):
+        return (0, 0)
+    max_loss = rollup.get("max_loss_pct")
+    failed = rollup.get("targets_failed")
+    ml = int(max_loss) if isinstance(max_loss, int) else 0
+    tf = int(failed) if isinstance(failed, int) else 0
+    return (ml, tf)
+
+
 def _load_samples(log_dir: str, start_ts: int, end_ts: int, host: str | None) -> list[dict]:
     samples: list[dict] = []
     pattern = os.path.join(log_dir, "incident-*.jsonl")
@@ -89,6 +106,18 @@ def build_html(
     max_estab = 0
     max_tw = 0
     max_loss = 0
+    max_loss_gateway = 0
+    max_loss_internal = 0
+    max_loss_external = 0
+    max_failed_gateway = 0
+    max_failed_internal = 0
+    max_failed_external = 0
+    max_tcp_probe_fails = 0
+    max_tcp_probe_total = 0
+    max_tcp_probe_local_fails = 0
+    max_tcp_probe_local_total = 0
+    max_tcp_probe_external_fails = 0
+    max_tcp_probe_external_total = 0
     max_load = 0.0
     min_mem = None
     first_bad = None
@@ -133,6 +162,39 @@ def build_html(
             max_tw = max(max_tw, v)
 
         max_loss = max(max_loss, _max_ping_loss(row.get("ping")))
+        g_loss, g_fail = _group_rollup(row, "gateway")
+        i_loss, i_fail = _group_rollup(row, "internal")
+        e_loss, e_fail = _group_rollup(row, "external")
+        max_loss_gateway = max(max_loss_gateway, g_loss)
+        max_loss_internal = max(max_loss_internal, i_loss)
+        max_loss_external = max(max_loss_external, e_loss)
+        max_failed_gateway = max(max_failed_gateway, g_fail)
+        max_failed_internal = max(max_failed_internal, i_fail)
+        max_failed_external = max(max_failed_external, e_fail)
+
+        tcpp = row.get("tcp_probe") or {}
+        totals = tcpp.get("totals") if isinstance(tcpp, dict) else {}
+        all_totals = totals.get("all") if isinstance(totals, dict) else {}
+        local_totals = totals.get("local") if isinstance(totals, dict) else {}
+        external_totals = totals.get("external") if isinstance(totals, dict) else {}
+        fails = all_totals.get("fails")
+        total = all_totals.get("total")
+        if isinstance(fails, int):
+            max_tcp_probe_fails = max(max_tcp_probe_fails, fails)
+        if isinstance(total, int):
+            max_tcp_probe_total = max(max_tcp_probe_total, total)
+        local_fails = local_totals.get("fails")
+        local_total = local_totals.get("total")
+        external_fails = external_totals.get("fails")
+        external_total = external_totals.get("total")
+        if isinstance(local_fails, int):
+            max_tcp_probe_local_fails = max(max_tcp_probe_local_fails, local_fails)
+        if isinstance(local_total, int):
+            max_tcp_probe_local_total = max(max_tcp_probe_local_total, local_total)
+        if isinstance(external_fails, int):
+            max_tcp_probe_external_fails = max(max_tcp_probe_external_fails, external_fails)
+        if isinstance(external_total, int):
+            max_tcp_probe_external_total = max(max_tcp_probe_external_total, external_total)
 
         la = row.get("load1")
         if isinstance(la, (int, float)):
@@ -167,6 +229,21 @@ def build_html(
     lines.append("")
     lines.append("<b>Ping</b> (max loss % по целям)")
     lines.append(f"<code>{max_loss}</code>")
+    lines.append(
+        "groups max loss g/i/e: "
+        f"<code>{max_loss_gateway}</code>/<code>{max_loss_internal}</code>/<code>{max_loss_external}</code>"
+    )
+    lines.append(
+        "groups max failed targets g/i/e: "
+        f"<code>{max_failed_gateway}</code>/<code>{max_failed_internal}</code>/<code>{max_failed_external}</code>"
+    )
+    if max_tcp_probe_total > 0:
+        lines.append(f"tcp-probe max failed checks: <code>{max_tcp_probe_fails}</code>/<code>{max_tcp_probe_total}</code>")
+        lines.append(
+            "tcp-probe local/external max failed: "
+            f"<code>{max_tcp_probe_local_fails}</code>/<code>{max_tcp_probe_local_total}</code> · "
+            f"<code>{max_tcp_probe_external_fails}</code>/<code>{max_tcp_probe_external_total}</code>"
+        )
 
     lines.append("")
     lines.append("<b>Conntrack / TCP</b>")

@@ -289,8 +289,14 @@ Potential heavy downloaders:
 Скрипт [`bin/incident-sampler.sh`](bin/incident-sampler.sh) запускается отдельным таймером и пишет в JSONL короткие срезы состояния сети. Это помогает разбирать минутные деградации VPN/панели по фактам, а не по косвенным признакам.
 
 - **Зависимости:** на хосте должна быть команда **`ping`** (Debian/Ubuntu: пакет **`iputils-ping`**), иначе loss/latency в JSON будут некорректны.
-- **Метрики в срезе:** ping-loss/latency, DNS probe, `nf_conntrack count/max`, TCP state counts, `load1`, `MemAvailable`, `systemctl is-active` для выбранных unit.
+- **Метрики в срезе:** ping-loss/latency, DNS probe, `nf_conntrack count/max`, TCP state counts, **TCP-probe по прикладным портам** (опционально), `load1`, `MemAvailable`, `systemctl is-active` для выбранных unit.
 - **Конфиг:** блок `INCIDENT_*` в [`config.example.env`](config.example.env). Для включения задайте `INCIDENT_SAMPLER_ENABLE=1`.
+- **Группы ping-таргетов для диагностики:** в JSON и post-mortem добавлены `ping_groups`:
+  - `gateway` — автоопределение next-hop из default route;
+  - `internal` — `INCIDENT_PING_INTERNAL_TARGETS`;
+  - `external` — `INCIDENT_PING_EXTERNAL_TARGETS`.
+  Это диагностическая телеметрия: текущая логика WARN/CRIT по `INCIDENT_PING_LOSS_WARN_PCT` не меняется.
+- **TCP-probe (рекомендуется):** задайте `INCIDENT_TCP_PROBE_PORTS="443 2053 37346"` и оба target: `INCIDENT_TCP_PROBE_LOCAL_TARGET=127.0.0.1` + `INCIDENT_TCP_PROBE_EXTERNAL_TARGET=<PUBLIC_IP_OR_DNS>`. Тогда в каждом срезе считаются отдельные fail-счётчики local/external и общий итог. Пороговые параметры: `INCIDENT_TCP_PROBE_WARN_FAILS`, `INCIDENT_TCP_PROBE_CRIT_FAILS`.
 - **Расписание:** [`systemd/cock-monitor-incident-sampler.timer`](systemd/cock-monitor-incident-sampler.timer) (по умолчанию каждые 10 секунд).
 - **Логи:** `${INCIDENT_LOG_DIR}/incident-YYYYMMDD.jsonl` (по умолчанию `/var/lib/cock-monitor`).
 - **Проверка вручную:** `sudo INCIDENT_SAMPLER_ENABLE=1 /opt/cock-monitor/bin/incident-sampler.sh /etc/cock-monitor.env`
