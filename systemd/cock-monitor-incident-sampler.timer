@@ -1,0 +1,11 @@
+[Unit]
+Description=Run cock-monitor incident sampler periodically
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=10s
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

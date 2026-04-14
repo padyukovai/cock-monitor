@@ -168,9 +168,40 @@ STATS_COOLDOWN_SECONDS=3600
 
 - **Первый замер** после пустой базы только инициализирует строку; алерты по дельте **не** отправляются.
 - **Кумулятивные** пороги `STATS_*_MIN` и **дельта/rate** (`ALERT_ON_STATS_DELTA`, `STATS_DELTA_*`, `STATS_RATE_*_PER_MIN`) могут работать **одновременно**; исходящие сообщения объединяются в один блок «STATS», общий cooldown задаётся **`STATS_COOLDOWN_SECONDS`**.
+- В конец текста STATS добавляется короткий **контекст хоста** (`load1`, `MemAvailable`, swap, строка `TCP:` из `/proc/net/sockstat`, строка шейпера из `SHAPER_STATUS_FILE` если `ts=` не старше **`STATS_ALERT_SHAPER_MAX_AGE_MIN`** минут, иначе `shaper: no data`). При **`STATS_ALERT_SHAPER_MAX_AGE_MIN=0`** возраст `ts` не проверяется.
 - Дельты считаются с учётом возможного **переполнения 32-bit** счётчиков ядра (обёртка modulo 2³²).
 - **`METRICS_RETENTION_DAYS`** удаляет старые строки; **`METRICS_MAX_ROWS`** (если > 0) ограничивает число последних записей.
 - Режим **`DRY_RUN=1`** (или CLI `--dry-run`) **не** пишет в базу и не трогает retention.
+
+**Таблица `host_samples`** (тот же `METRICS_DB`): при каждой записи в `conntrack_samples` добавляется строка с тем же **`ts`** — нагрузка и память для постмортема.
+
+| Колонка | Смысл |
+|--------|--------|
+| `ts` | Unix time (как в `conntrack_samples`) |
+| `load1` | 1‑минутный load average из `/proc/loadavg` |
+| `mem_avail_kb` | `MemAvailable` из `/proc/meminfo` (kB) |
+| `swap_used_kb` | `SwapTotal − SwapFree` (kB), если оба поля есть |
+| `tcp_inuse`, `tcp_orphan`, `tcp_tw` | из строки `TCP:` в `/proc/net/sockstat` |
+| `tcp6_inuse` | из строки `TCP6:` |
+| `shaper_rate_mbit`, `shaper_cpu_pct` | из файла статуса шейпера (`SHAPER_STATUS_FILE`), если есть |
+| `tc_qdisc_root` | первая строка `tc qdisc show dev <SHAPER_IFACE|ens3> root` (до 400 символов); отключить: **`METRICS_COLLECT_TC_QDISC=0`** |
+
+Удаление по возрасту затрагивает и **`host_samples`**, и **`conntrack_samples`**. После обрезки по **`METRICS_MAX_ROWS`** «лишние» строки **`host_samples`** без пары в `conntrack_samples` удаляются автоматически.
+
+Пример: что было на хосте за последний час (границы в epoch можно задать из времени жалобы):
+
+```bash
+T0=$(( $(date +%s) - 3600 ))
+T1=$(date +%s)
+sqlite3 /var/lib/cock-monitor/metrics.db "
+SELECT datetime(c.ts, 'unixepoch'), c.fill_pct, h.load1, h.mem_avail_kb, h.swap_used_kb,
+       h.tcp_inuse, h.tcp_orphan, h.tcp_tw, h.shaper_rate_mbit
+FROM conntrack_samples c
+LEFT JOIN host_samples h ON h.ts = c.ts
+WHERE c.ts >= ${T0} AND c.ts <= ${T1}
+ORDER BY c.ts;
+"
+```
 
 Подробные переменные см. в [`config.example.env`](config.example.env).
 
@@ -252,6 +283,18 @@ Potential heavy downloaders:
 - **Конфиг:** блок `SHAPER_*` в [`config.example.env`](config.example.env). Включение: **`SHAPER_ENABLE=1`**. Важно указать порты Xray/VPN: `SHAPER_VPN_PORTS=443,2053,37346`.
 - **Расписание:** [`systemd/cock-shaper.timer`](systemd/cock-shaper.timer) (по умолчанию запускается каждые 10 секунд).
 - **Проверка:** для проверки в холостую: `sudo /opt/cock-monitor/bin/cock-cpu-shaper.sh --dry-run /etc/cock-monitor.env`
+
+### Incident sampler (короткие постмортем-срезы)
+
+Скрипт [`bin/incident-sampler.sh`](bin/incident-sampler.sh) запускается отдельным таймером и пишет в JSONL короткие срезы состояния сети. Это помогает разбирать минутные деградации VPN/панели по фактам, а не по косвенным признакам.
+
+- **Зависимости:** на хосте должна быть команда **`ping`** (Debian/Ubuntu: пакет **`iputils-ping`**), иначе loss/latency в JSON будут некорректны.
+- **Метрики в срезе:** ping-loss/latency, DNS probe, `nf_conntrack count/max`, TCP state counts, `load1`, `MemAvailable`, `systemctl is-active` для выбранных unit.
+- **Конфиг:** блок `INCIDENT_*` в [`config.example.env`](config.example.env). Для включения задайте `INCIDENT_SAMPLER_ENABLE=1`.
+- **Расписание:** [`systemd/cock-monitor-incident-sampler.timer`](systemd/cock-monitor-incident-sampler.timer) (по умолчанию каждые 10 секунд).
+- **Логи:** `${INCIDENT_LOG_DIR}/incident-YYYYMMDD.jsonl` (по умолчанию `/var/lib/cock-monitor`).
+- **Проверка вручную:** `sudo INCIDENT_SAMPLER_ENABLE=1 /opt/cock-monitor/bin/incident-sampler.sh /etc/cock-monitor.env`
+- **Post-mortem в Telegram:** при переходе **WARN/CRIT → OK** скрипт [`bin/incident-postmortem.py`](bin/incident-postmortem.py) читает JSONL за окно инцидента и отправляет краткий HTML-отчёт (нужны **python3** и `INCIDENT_POSTMORTEM_ENABLE=1`).
 
 ## Логи и диск
 

@@ -1,0 +1,12 @@
+[Unit]
+Description=Incident sampler (network/DNS/conntrack snapshot to JSONL)
+Documentation=file:///opt/cock-monitor/README.md
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/etc/cock-monitor.env
+ExecStart=/opt/cock-monitor/bin/incident-sampler.sh /etc/cock-monitor.env
+
+[Install]
+WantedBy=multi-user.target
