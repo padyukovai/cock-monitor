@@ -8,9 +8,8 @@ Wants=network-online.target
 Type=oneshot
 User=root
 EnvironmentFile=-/etc/cock-monitor.env
-Environment=PYTHONPATH=/opt/cock-monitor
 WorkingDirectory=/opt/cock-monitor
-ExecStart=/usr/bin/python3 /opt/cock-monitor/bin/cock-mtproxy-collect.py --env-file /etc/cock-monitor.env
+ExecStart=/usr/bin/python3 -m cock_monitor mtproxy-collect --env-file /etc/cock-monitor.env
 
 [Install]
 WantedBy=multi-user.target

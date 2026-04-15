@@ -2,24 +2,48 @@ from __future__ import annotations
 
 import os
 import sqlite3
-import subprocess
-import sys
 import tempfile
 import time
+from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
 from typing import Any
 
+from cock_monitor.services.daily_chart import run_daily_chart
+from cock_monitor.services.vless_report import VlessReportError, run_since_last_sent_with_telegram
 from mtproxy_module.charts import generate_mtproxy_chart
-from mtproxy_module.core import (
-    MtproxyConfig,
-    build_period_caption,
-    current_status_text,
-    init_schema,
-    summary_rows,
-    update_threshold,
-)
+from mtproxy_module.config import MtproxyConfig
+from mtproxy_module.reports import build_period_caption, current_status_text
+from mtproxy_module.repository import init_schema, summary_rows, update_threshold
+
+from telegram_bot.runtime import run_with_timeout
 from telegram_bot.status_provider import StatusProvider, truncate_for_telegram
 from telegram_bot.telegram_client import TelegramClient
+
+_BOT_CMD_TIMEOUT_SEC = 120.0
+
+
+def _send_cmd_failure(client: TelegramClient, chat_id: str, cmd: str, message: str) -> None:
+    client.send_message(chat_id, f"{cmd} failed:\n{message}"[:2000])
+
+
+def _run_command_with_timeout(
+    client: TelegramClient,
+    chat_id: str,
+    cmd: str,
+    fn: Any,
+    *,
+    timeout_sec: float = _BOT_CMD_TIMEOUT_SEC,
+    known_exceptions: tuple[type[BaseException], ...] = (),
+) -> tuple[bool, Any]:
+    try:
+        return True, run_with_timeout(fn, timeout_sec)
+    except FutureTimeout:
+        _send_cmd_failure(client, chat_id, cmd, f"timed out after {timeout_sec:.0f}s")
+    except known_exceptions as e:
+        _send_cmd_failure(client, chat_id, cmd, str(e))
+    except (OSError, RuntimeError, ValueError) as e:
+        _send_cmd_failure(client, chat_id, cmd, str(e))
+    return False, None
 
 
 def _command_token(text: str) -> str | None:
@@ -58,9 +82,7 @@ def handle_update(
     allowed_chat_id: str,
     client: TelegramClient,
     status_provider: StatusProvider,
-    chart_script: Path | None = None,
     env_file: Path | None = None,
-    monitor_home: Path | None = None,
     mtproxy_cfg: MtproxyConfig | None = None,
     mtproxy_conn: sqlite3.Connection | None = None,
 ) -> None:
@@ -89,32 +111,55 @@ def handle_update(
             return
         init_schema(mtproxy_conn)
         if cmd == "/mt_status":
-            body = current_status_text(mtproxy_conn, mtproxy_cfg)
+            ok, body = _run_command_with_timeout(
+                client,
+                str(chat_id),
+                "mt_status",
+                lambda: current_status_text(mtproxy_conn, mtproxy_cfg),
+            )
+            if not ok:
+                return
             client.send_message(str(chat_id), truncate_for_telegram(body))
             return
         if cmd == "/mt_today":
             start_ts = int(time.time()) - 24 * 3600
-            rows = summary_rows(mtproxy_conn, start_ts)
             fd, tmp_path = tempfile.mkstemp(suffix=".png")
             try:
                 os.close(fd)
                 out = Path(tmp_path)
-                generate_mtproxy_chart(
-                    rows,
-                    out,
-                    title=f"MTProxy Load - {time.strftime('%d.%m.%Y')}",
+                ok, payload = _run_command_with_timeout(
+                    client,
+                    str(chat_id),
+                    "mt_today",
+                    lambda: (
+                        summary_rows(mtproxy_conn, start_ts),
+                        build_period_caption(
+                            mtproxy_conn,
+                            start_ts,
+                            title="MTProxy - Report (24h)",
+                            top_n=mtproxy_cfg.daily_report_top_n,
+                        ),
+                    ),
                 )
-                cap = build_period_caption(
-                    mtproxy_conn,
-                    start_ts,
-                    title="MTProxy - Report (24h)",
-                    top_n=mtproxy_cfg.daily_report_top_n,
+                if not ok:
+                    return
+                rows, cap = payload
+                ok, _ = _run_command_with_timeout(
+                    client,
+                    str(chat_id),
+                    "mt_today",
+                    lambda: generate_mtproxy_chart(
+                        rows,
+                        out,
+                        title=f"MTProxy Load - {time.strftime('%d.%m.%Y')}",
+                    ),
+                    known_exceptions=(ImportError,),
                 )
+                if not ok:
+                    return
                 client.send_photo(str(chat_id), out, caption=cap)
             except ImportError:
                 client.send_message(str(chat_id), "matplotlib is required for /mt_today.")
-            except (OSError, RuntimeError) as e:
-                client.send_message(str(chat_id), f"/mt_today failed: {e}"[:2000])
             finally:
                 try:
                     Path(tmp_path).unlink(missing_ok=True)
@@ -132,42 +177,52 @@ def handle_update(
             except ValueError:
                 client.send_message(str(chat_id), "Invalid value. Must be integer.")
                 return
-            msg = update_threshold(mtproxy_conn, param, value)
+            ok, msg = _run_command_with_timeout(
+                client,
+                str(chat_id),
+                "mt_threshold",
+                lambda: update_threshold(mtproxy_conn, param, value),
+            )
+            if not ok:
+                return
             client.send_message(str(chat_id), msg[:2000])
             return
         return
 
     if cmd == "/chart":
-        if chart_script is None or env_file is None:
-            client.send_message(str(chat_id), "/chart is not configured (internal paths).")
-            return
-        if not chart_script.is_file():
-            client.send_message(str(chat_id), "Chart script missing on server.")
+        if env_file is None:
+            client.send_message(str(chat_id), "/chart is not configured (env file missing).")
             return
         fd, tmp_path = tempfile.mkstemp(suffix=".png")
         try:
             os.close(fd)
             out = Path(tmp_path)
-            r = subprocess.run(
-                [
-                    sys.executable,
-                    str(chart_script),
-                    "--env-file",
-                    str(env_file),
-                    "--output",
-                    str(out),
-                ],
-                cwd=str(chart_script.resolve().parent.parent),
-                capture_output=True,
-                text=True,
-                timeout=120,
-                check=False,
+
+            def _chart() -> str:
+                return run_daily_chart(env_file, out)
+
+            ok, caption = _run_command_with_timeout(
+                client,
+                str(chat_id),
+                "chart",
+                _chart,
+                known_exceptions=(FileNotFoundError, RuntimeError),
             )
-            if r.returncode != 0:
-                err = (r.stderr or r.stdout or "unknown error")[:1500]
-                client.send_message(str(chat_id), f"chart failed:\n{err}")
+            if not ok:
                 return
-            client.send_photo(str(chat_id), out, caption="cock-monitor (on-demand chart)")
+            if not isinstance(caption, str):
+                _send_cmd_failure(client, str(chat_id), "chart", "empty chart caption")
+                return
+            try:
+                client.send_photo(str(chat_id), out, caption=caption)
+            except ImportError as e:
+                client.send_message(
+                    str(chat_id),
+                    "chart failed:\nmatplotlib required (e.g. apt install python3-matplotlib)\n"
+                    + str(e)[:800],
+                )
+            except (OSError, RuntimeError) as e:
+                _send_cmd_failure(client, str(chat_id), "chart", str(e))
         except (OSError, RuntimeError) as e:
             client.send_message(str(chat_id), f"chart error: {e}"[:2000])
         finally:
@@ -181,44 +236,23 @@ def handle_update(
         if env_file is None:
             client.send_message(str(chat_id), "/vless_delta is not configured (env file missing).")
             return
-        report_script = (
-            (monitor_home / "bin" / "cock-vless-daily-report.py")
-            if monitor_home is not None
-            else Path("/opt/cock-monitor/bin/cock-vless-daily-report.py")
+
+        def _vless() -> None:
+            run_since_last_sent_with_telegram(env_file)
+
+        _run_command_with_timeout(
+            client,
+            str(chat_id),
+            "vless_delta",
+            _vless,
+            known_exceptions=(VlessReportError,),
         )
-        if not report_script.is_file():
-            report_script = Path("/opt/cock-monitor/bin/cock-vless-daily-report.py")
-        if not report_script.is_file():
-            client.send_message(str(chat_id), "VLESS report script missing on server.")
-            return
-        r = subprocess.run(
-            [
-                sys.executable,
-                str(report_script),
-                "--env-file",
-                str(env_file),
-                "--send-telegram",
-                "--mode",
-                "since-last-sent",
-            ],
-            cwd=str(report_script.resolve().parent.parent),
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
-        )
-        if r.returncode != 0:
-            err = (r.stderr or r.stdout or "unknown error")[:1500]
-            client.send_message(str(chat_id), f"vless_delta failed:\n{err}")
         return
 
     if cmd != "/status":
         return
     ok, body = status_provider.get_status()
     if not ok:
-        client.send_message(
-            str(chat_id),
-            "Status failed:\n" + body[:2000],
-        )
+        _send_cmd_failure(client, str(chat_id), "status", body)
         return
     client.send_message(str(chat_id), truncate_for_telegram(body))

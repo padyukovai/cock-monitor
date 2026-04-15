@@ -8,4 +8,4 @@ Type=oneshot
 User=root
 EnvironmentFile=-/etc/cock-monitor.env
 WorkingDirectory=/opt/cock-monitor
-ExecStart=/usr/bin/python3 /opt/cock-monitor/bin/cock-vless-daily-report.py --env-file /etc/cock-monitor.env --send-telegram --mode daily
+ExecStart=/usr/bin/python3 -m cock_monitor vless-report --env-file /etc/cock-monitor.env --send-telegram --mode daily

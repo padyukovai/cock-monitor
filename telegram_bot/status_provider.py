@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-import subprocess
+from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
 from typing import Protocol
+
+from cock_monitor.services.status_report import StatusReportError, build_status_report
+
+from telegram_bot.runtime import run_with_timeout
 
 
 class StatusProvider(Protocol):
@@ -20,36 +24,28 @@ def truncate_for_telegram(text: str, limit: int = MAX_MESSAGE_LEN) -> str:
     return text[: max(0, limit - len(suffix))] + suffix
 
 
-class SubprocessStatusProvider:
-    """Runs cock-status.sh with the same env file as the monitor."""
+class PythonStatusProvider:
+    """Builds /status text via Python service without shell orchestration."""
 
     def __init__(
         self,
         *,
         env_file: Path,
-        cock_status_sh: Path,
         timeout_sec: float = 60.0,
     ) -> None:
         self._env_file = env_file.resolve()
-        self._script = cock_status_sh.resolve()
         self._timeout = timeout_sec
 
     def get_status(self) -> tuple[bool, str]:
-        if not self._script.is_file():
-            return False, f"cock-status script not found: {self._script}"
         try:
-            proc = subprocess.run(
-                ["/usr/bin/env", "bash", str(self._script), str(self._env_file)],
-                capture_output=True,
-                text=True,
-                timeout=self._timeout,
-                check=False,
+            out = run_with_timeout(
+                lambda: build_status_report(self._env_file),
+                self._timeout,
             )
-        except subprocess.TimeoutExpired:
-            return False, "cock-status timed out"
-        out = (proc.stdout or "").strip()
-        err = (proc.stderr or "").strip()
-        if proc.returncode != 0:
-            msg = err or out or f"exit {proc.returncode}"
-            return False, msg
+        except FutureTimeout:
+            return False, f"status timed out after {self._timeout:.0f}s"
+        except StatusReportError as exc:
+            return False, str(exc)
+        except OSError as exc:
+            return False, str(exc)
         return True, out if out else "(empty status)"

@@ -6,10 +6,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-# cock-status.sh may run conntrack -S (often needs root).
+# /status may read conntrack stats (often needs root).
 User=root
 EnvironmentFile=-/etc/cock-monitor.env
-Environment=PYTHONPATH=/opt/cock-monitor
 Environment=COCK_MONITOR_HOME=/opt/cock-monitor
 WorkingDirectory=/opt/cock-monitor
 ExecStart=/usr/bin/python3 -m telegram_bot --poll-once /etc/cock-monitor.env

@@ -6,7 +6,8 @@ Documentation=file:///opt/cock-monitor/README.md
 Type=oneshot
 User=root
 EnvironmentFile=-/etc/cock-monitor.env
-ExecStart=/opt/cock-monitor/bin/incident-sampler.sh /etc/cock-monitor.env
+WorkingDirectory=/opt/cock-monitor
+ExecStart=/usr/bin/python3 -m cock_monitor.services.incident_sampler /etc/cock-monitor.env
 
 [Install]
 WantedBy=multi-user.target

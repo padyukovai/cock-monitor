@@ -1,0 +1,4 @@
+# Editable install + pytest + ruff (see pyproject.toml [project.optional-dependencies].dev).
+# From repository root:
+#   pip install -e ".[dev]"
+-e .[dev]

@@ -7,11 +7,11 @@ import html
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def _iso_from_epoch(ts: int) -> str:
-    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _max_ping_loss(ping: object) -> int:
@@ -209,11 +209,17 @@ def build_html(
     n = len(samples)
 
     lines = [
-        f"<b>Post-mortem: сеть восстановлена</b>",
+        "<b>Post-mortem: сеть восстановлена</b>",
         f"Host: <code>{html.escape(host)}</code>",
-        f"Peak: <b>{html.escape(peak_level)}</b> · samples in incident: <code>{levels_non_ok}</code> / <code>{n}</code>",
-        f"Окно: <code>{_iso_from_epoch(start_ts)}</code> → <code>{_iso_from_epoch(end_ts)}</code> (~{html.escape(dur_s)})",
-        f"Первая строка лога: <code>{_iso_from_epoch(first_ts)}</code> · последняя: <code>{_iso_from_epoch(last_ts)}</code>",
+        "Peak: "
+        f"<b>{html.escape(peak_level)}</b> · samples in incident: "
+        f"<code>{levels_non_ok}</code> / <code>{n}</code>",
+        "Окно: "
+        f"<code>{_iso_from_epoch(start_ts)}</code> → "
+        f"<code>{_iso_from_epoch(end_ts)}</code> (~{html.escape(dur_s)})",
+        "Первая строка лога: "
+        f"<code>{_iso_from_epoch(first_ts)}</code> · "
+        f"последняя: <code>{_iso_from_epoch(last_ts)}</code>",
     ]
     if first_bad is not None and last_bad is not None:
         lines.append(
@@ -223,7 +229,9 @@ def build_html(
     lines.append("")
     lines.append("<b>DNS</b>")
     lines.append(
-        f"ok/fail: <code>{dns_ok}</code>/<code>{dns_fail}</code> · max streak fail: <code>{max_streak}</code> · max latency ms: <code>{dns_lat_max}</code>"
+        f"ok/fail: <code>{dns_ok}</code>/<code>{dns_fail}</code> · "
+        f"max streak fail: <code>{max_streak}</code> · "
+        f"max latency ms: <code>{dns_lat_max}</code>"
     )
 
     lines.append("")
@@ -238,7 +246,10 @@ def build_html(
         f"<code>{max_failed_gateway}</code>/<code>{max_failed_internal}</code>/<code>{max_failed_external}</code>"
     )
     if max_tcp_probe_total > 0:
-        lines.append(f"tcp-probe max failed checks: <code>{max_tcp_probe_fails}</code>/<code>{max_tcp_probe_total}</code>")
+        lines.append(
+            "tcp-probe max failed checks: "
+            f"<code>{max_tcp_probe_fails}</code>/<code>{max_tcp_probe_total}</code>"
+        )
         lines.append(
             "tcp-probe local/external max failed: "
             f"<code>{max_tcp_probe_local_fails}</code>/<code>{max_tcp_probe_local_total}</code> · "
@@ -248,7 +259,8 @@ def build_html(
     lines.append("")
     lines.append("<b>Conntrack / TCP</b>")
     lines.append(
-        f"max fill %: <code>{max_fill}</code> · max estab/syn_recv/tw: <code>{max_estab}</code>/<code>{max_syn}</code>/<code>{max_tw}</code>"
+        f"max fill %: <code>{max_fill}</code> · "
+        f"max estab/syn_recv/tw: <code>{max_estab}</code>/<code>{max_syn}</code>/<code>{max_tw}</code>"
     )
 
     lines.append("")

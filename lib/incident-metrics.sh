@@ -1,4 +1,4 @@
-# Shared incident-sampler helpers (sourced by incident-sampler.sh).
+# Shared incident-sampler helpers (legacy; runtime logic is cock_monitor.services.incident_sampler).
 # shellcheck shell=bash
 [[ -n "${_COCK_MONITOR_INCIDENT_METRICS_SH:-}" ]] && return
 _COCK_MONITOR_INCIDENT_METRICS_SH=1

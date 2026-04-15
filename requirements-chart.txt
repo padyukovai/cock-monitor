@@ -1,3 +1,3 @@
-# Optional: daily /chart PNG (python3 -m pip install -r requirements-chart.txt)
+# Optional: daily /chart PNG (same as: pip install -e ".[chart]" from repo root).
 # On Debian/Ubuntu you can use: apt install python3-matplotlib
 matplotlib>=3.7
