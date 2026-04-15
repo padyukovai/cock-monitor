@@ -5,6 +5,7 @@ import os
 import socket
 import sqlite3
 import sys
+import tempfile
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,12 +14,16 @@ from typing import Literal
 from telegram_bot.telegram_client import TelegramClient
 
 from cock_monitor.adapters.vless_access_log import collect_access_log_ip_summary
-from cock_monitor.adapters.vless_report_formatter import format_vless_report
+from cock_monitor.adapters.vless_report_formatter import (
+    build_vless_top_downloaders,
+    format_vless_report,
+)
 from cock_monitor.adapters.xui_sqlite import fetch_client_traffics, fetch_vless_email_set
 from cock_monitor.config_loader import load_config
 from cock_monitor.defaults import DEFAULT_METRICS_DB
 from cock_monitor.domain.vless_traffic import load_tz
 from cock_monitor.env import merge_env_into_process
+from cock_monitor.services.vless_chart import generate_vless_top_chart
 from cock_monitor.storage.sqlite_connection import open_sqlite_connection
 from cock_monitor.storage.vless_repository import (
     ensure_report_tables,
@@ -62,6 +67,8 @@ def run_vless_report_use_case(
     min_total_mb = loaded.app.vless.daily_min_total_mb
     ip_top_k = loaded.app.vless.ip_top_k
     ip_parse_max_mb = loaded.app.vless.ip_parse_max_mb
+    chart_enable = loaded.app.vless.chart_enable
+    chart_top_n = loaded.app.vless.chart_top_n
     ip_parse_max_bytes = ip_parse_max_mb * 1024 * 1024
 
     try:
@@ -194,7 +201,47 @@ def run_vless_report_use_case(
                 chat = loaded.app.telegram.chat_id
                 if not token or not chat:
                     raise VlessReportError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID required")
-                TelegramClient(token).send_message(chat, report_text, parse_mode="HTML")
+                client = TelegramClient(token)
+                client.send_message(chat, report_text, parse_mode="HTML")
+                if chart_enable and prev_map:
+                    tmp_path = ""
+                    try:
+                        fd, tmp_path = tempfile.mkstemp(suffix=".png")
+                        os.close(fd)
+                        chart_path = Path(tmp_path)
+                        top_rows = build_vless_top_downloaders(
+                            current_map=current_map,
+                            prev_map=prev_map,
+                            top_n=chart_top_n,
+                        )
+                        chart_title = (
+                            f"{socket.gethostname()} - "
+                            f"{'VLESS Daily' if mode == 'daily' else 'VLESS Delta'} top "
+                            f"{max(1, chart_top_n)} downloaders"
+                        )
+                        generate_vless_top_chart(top_rows, chart_path, title=chart_title)
+                        period_label = "daily" if mode == "daily" else "since-last"
+                        client.send_photo(
+                            chat,
+                            chart_path,
+                            caption=f"VLESS {period_label} top {max(1, chart_top_n)} by delta total",
+                        )
+                    except ImportError:
+                        print(
+                            "cock-vless-daily-report: chart skipped (matplotlib missing)",
+                            file=sys.stderr,
+                        )
+                    except (OSError, RuntimeError, ValueError) as exc:
+                        print(
+                            f"cock-vless-daily-report: chart skipped ({exc})",
+                            file=sys.stderr,
+                        )
+                    finally:
+                        if tmp_path:
+                            try:
+                                Path(tmp_path).unlink(missing_ok=True)
+                            except OSError:
+                                pass
                 sent_ok = True
                 if mode == "since-last-sent":
                     save_checkpoint(met_conn, ts=ts, rows=rows, source="since_last_sent")

@@ -120,3 +120,21 @@ def test_shrink_telegram_html_truncates() -> None:
     long = "x" * 5000
     out = vt.shrink_telegram_html(long, max_len=4000)
     assert len(out) <= 4000
+
+
+def test_top_downloaders_by_delta_total_filters_and_orders() -> None:
+    top = vt.top_downloaders_by_delta_total(
+        current_map={"u1": 1000, "u2": 2500, "u3": 400, "u4": 100},
+        prev_map={"u1": 900, "u2": 1000, "u3": 500, "u4": 100},
+        top_n=3,
+    )
+    assert top == [("u2", 1500), ("u1", 100)]
+
+
+def test_top_downloaders_by_delta_total_handles_empty_baseline() -> None:
+    top = vt.top_downloaders_by_delta_total(
+        current_map={"a": 42},
+        prev_map={},
+        top_n=10,
+    )
+    assert top == [("a", 42)]

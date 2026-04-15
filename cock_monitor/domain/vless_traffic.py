@@ -37,6 +37,59 @@ class IpParseStats:
     truncated: bool
 
 
+@dataclass(frozen=True)
+class DeltaEntry:
+    email: str
+    delta_total: int
+    reset_detected: bool
+
+
+def compute_delta_entries(
+    current_map: dict[str, int],
+    prev_map: dict[str, int],
+) -> tuple[list[DeltaEntry], int, int]:
+    deltas: list[DeltaEntry] = []
+    total_delta = 0
+    reset_count = 0
+    for email, cur_total in current_map.items():
+        prev_total = prev_map.get(email, 0)
+        raw_delta = cur_total - prev_total
+        reset_detected = raw_delta < 0
+        delta = raw_delta if raw_delta > 0 else 0
+        if reset_detected:
+            reset_count += 1
+        if delta > 0:
+            total_delta += delta
+        deltas.append(
+            DeltaEntry(
+                email=email,
+                delta_total=delta,
+                reset_detected=reset_detected,
+            )
+        )
+    deltas.sort(key=lambda x: x.delta_total, reverse=True)
+    return deltas, total_delta, reset_count
+
+
+def top_downloaders_by_delta_total(
+    current_map: dict[str, int],
+    prev_map: dict[str, int],
+    *,
+    top_n: int,
+) -> list[tuple[str, int]]:
+    if top_n <= 0:
+        return []
+    deltas, _, _ = compute_delta_entries(current_map, prev_map)
+    out: list[tuple[str, int]] = []
+    for item in deltas:
+        if item.delta_total <= 0:
+            continue
+        out.append((item.email, item.delta_total))
+        if len(out) >= top_n:
+            break
+    return out
+
+
 def read_file_slice(path: Path, max_bytes: int, *, from_tail: bool) -> tuple[bytes, bool]:
     """Read up to max_bytes from file start (daily) or end (since-last). Returns (data, truncated)."""
     try:
@@ -267,28 +320,14 @@ def build_report(
         )
         return text, 0, 0, "", 0
 
-    deltas: list[tuple[str, int, bool]] = []
-    total_delta = 0
-    reset_count = 0
-    for email, cur_total in current_map.items():
-        prev_total = prev_map.get(email, 0)
-        raw_delta = cur_total - prev_total
-        reset_detected = raw_delta < 0
-        delta = raw_delta if raw_delta > 0 else 0
-        if reset_detected:
-            reset_count += 1
-        if delta > 0:
-            total_delta += delta
-        deltas.append((email, delta, reset_detected))
-
-    deltas.sort(key=lambda x: x[1], reverse=True)
-    active = sum(1 for _, d, _ in deltas if d > 0)
-    top = deltas[: max(1, top_n)]
+    deltas, total_delta, reset_count = compute_delta_entries(current_map, prev_map)
+    active = sum(1 for item in deltas if item.delta_total > 0)
+    top = top_downloaders_by_delta_total(current_map, prev_map, top_n=max(1, top_n))
     top1_email = top[0][0] if top else ""
     top1_delta = top[0][1] if top else 0
     top1_share = (top1_delta * 100.0 / total_delta) if total_delta > 0 else 0.0
 
-    delta_lookup: dict[str, int] = {e: d for e, d, _ in deltas}
+    delta_lookup: dict[str, int] = {item.email: item.delta_total for item in deltas}
 
     lines: list[str] = []
     lines.append(f"<b>{esc(host)} — {esc(title)}</b>")
@@ -302,7 +341,7 @@ def build_report(
     lines.append("")
     lines.append(f"<b>Top {max(1, top_n)} downloaders</b>:")
     rank = 0
-    for email, delta, _ in top:
+    for email, delta in top:
         if delta <= 0:
             continue
         rank += 1
@@ -352,7 +391,9 @@ def build_report(
     threshold_bytes = int(abuse_gb * 1024 * 1024 * 1024)
     min_total_bytes = int(min_total_mb * 1024 * 1024)
     abuse: list[str] = []
-    for email, delta, _ in deltas:
+    for item in deltas:
+        email = item.email
+        delta = item.delta_total
         if delta <= 0:
             continue
         share = (delta * 100.0 / total_delta) if total_delta > 0 else 0.0

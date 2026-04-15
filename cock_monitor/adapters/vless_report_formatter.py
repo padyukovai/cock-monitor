@@ -1,7 +1,7 @@
 """Adapter that owns report text formatting for VLESS delivery channels."""
 from __future__ import annotations
 
-from cock_monitor.domain.vless_traffic import build_report
+from cock_monitor.domain.vless_traffic import build_report, top_downloaders_by_delta_total
 
 
 def format_vless_report(
@@ -33,3 +33,12 @@ def format_vless_report(
         ip_top_k=ip_top_k,
         ip_truncated=ip_truncated,
     )
+
+
+def build_vless_top_downloaders(
+    *,
+    current_map: dict[str, int],
+    prev_map: dict[str, int],
+    top_n: int,
+) -> list[tuple[str, int]]:
+    return top_downloaders_by_delta_total(current_map, prev_map, top_n=top_n)

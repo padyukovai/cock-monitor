@@ -91,6 +91,8 @@ class VlessConfig:
     daily_min_total_mb: int
     ip_top_k: int
     ip_parse_max_mb: int
+    chart_enable: bool
+    chart_top_n: int
 
 
 @dataclass(frozen=True)
@@ -201,6 +203,8 @@ class AppConfig:
                 daily_min_total_mb=max(0, _as_int(env.get("VLESS_DAILY_MIN_TOTAL_MB"), 500)),
                 ip_top_k=max(1, _as_int(env.get("VLESS_IP_TOP_K"), 3)),
                 ip_parse_max_mb=max(1, _as_int(env.get("VLESS_IP_PARSE_MAX_MB"), 256)),
+                chart_enable=_as_bool(env.get("VLESS_CHART_ENABLE"), default=True),
+                chart_top_n=max(1, _as_int(env.get("VLESS_CHART_TOP_N"), 10)),
             ),
             incident=IncidentConfig(
                 enabled=_as_bool(env.get("INCIDENT_SAMPLER_ENABLE"), default=False),
