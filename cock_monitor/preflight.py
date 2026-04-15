@@ -8,8 +8,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from cock_monitor.config_loader import load_config
 from cock_monitor.defaults import DEFAULT_ENV_FILE
-from cock_monitor.env import parse_env_file
 
 
 def _to_bool(raw: str | None, default: bool = False) -> bool:
@@ -66,7 +66,8 @@ def run_preflight(
                 ok = False
         else:
             try:
-                env = parse_env_file(ep)
+                loaded = load_config(ep)
+                env = loaded.app.raw
                 lines.append(f"ok: loaded env from {ep}")
             except OSError as e:
                 lines.append(f"ERROR: cannot read env file {ep}: {e}")

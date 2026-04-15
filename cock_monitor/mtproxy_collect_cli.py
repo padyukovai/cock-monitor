@@ -18,7 +18,8 @@ from mtproxy_module.repository import (
 )
 from telegram_bot.telegram_client import TelegramClient
 
-from cock_monitor.env import merge_env_into_process, parse_env_file
+from cock_monitor.config_loader import load_config
+from cock_monitor.env import merge_env_into_process
 
 
 def dispatch_mtproxy_alerts(
@@ -59,14 +60,15 @@ def run(argv: list[str] | None = None) -> int:
         print(f"cock-mtproxy-collect: env file not found: {env_path}", file=sys.stderr)
         return 1
 
-    raw = parse_env_file(env_path)
+    loaded = load_config(env_path)
+    raw = loaded.app.raw
     merge_env_into_process(raw)
     cfg = MtproxyConfig.from_env_map(raw)
     if not cfg.enabled:
         return 0
 
-    token = raw.get("TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = raw.get("TELEGRAM_CHAT_ID", "").strip()
+    token = loaded.app.telegram.bot_token
+    chat_id = loaded.app.telegram.chat_id
     if not token or not chat_id:
         print("cock-mtproxy-collect: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required", file=sys.stderr)
         return 1

@@ -15,9 +15,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
+from cock_monitor.config_loader import load_config
 from cock_monitor.defaults import DEFAULT_METRICS_DB, DEFAULT_STATE_FILE
 from cock_monitor.domain.conntrack_policy import metrics_phase_result, severity_from_fill_pct, should_send_fill_alert
-from cock_monitor.env import parse_env_file
 from cock_monitor.storage.conntrack_host_repository import (
     ConntrackHostRepository,
     ConntrackSampleInsert,
@@ -460,7 +460,7 @@ def run_conntrack_check(
         err.write(f"check-conntrack: config not found: {env_file}\n")
         return 1
 
-    raw_env = parse_env_file(env_file)
+    raw_env = load_config(env_file).app.raw
     cfg = ConntrackCheckConfig.from_env(raw_env, dry_run_override=dry_run_override)
     if not cfg.dry_run and (not cfg.telegram_bot_token or not cfg.telegram_chat_id):
         if not cfg.telegram_bot_token:

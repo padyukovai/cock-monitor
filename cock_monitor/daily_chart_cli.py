@@ -8,7 +8,8 @@ from pathlib import Path
 
 from telegram_bot.telegram_client import TelegramClient
 
-from cock_monitor.env import merge_env_into_process, parse_env_file
+from cock_monitor.config_loader import load_config
+from cock_monitor.env import merge_env_into_process
 from cock_monitor.services.daily_chart import run_daily_chart
 
 
@@ -43,7 +44,8 @@ def run(argv: list[str] | None = None) -> int:
         print(f"cock-daily-chart: env file not found: {env_path}", file=sys.stderr)
         return 1
 
-    raw = parse_env_file(env_path)
+    loaded = load_config(env_path)
+    raw = loaded.app.raw
     merge_env_into_process(raw)
 
     out_path = args.output
@@ -74,8 +76,8 @@ def run(argv: list[str] | None = None) -> int:
         return 1
 
     if args.send_telegram:
-        token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-        chat = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+        token = loaded.app.telegram.bot_token
+        chat = loaded.app.telegram.chat_id
         if not token or not chat:
             print(
                 "cock-daily-chart: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID required",

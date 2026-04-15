@@ -15,9 +15,10 @@ from telegram_bot.telegram_client import TelegramClient
 from cock_monitor.adapters.vless_access_log import collect_access_log_ip_summary
 from cock_monitor.adapters.vless_report_formatter import format_vless_report
 from cock_monitor.adapters.xui_sqlite import fetch_client_traffics, fetch_vless_email_set
+from cock_monitor.config_loader import load_config
 from cock_monitor.defaults import DEFAULT_METRICS_DB
 from cock_monitor.domain.vless_traffic import load_tz
-from cock_monitor.env import merge_env_into_process, parse_env_file
+from cock_monitor.env import merge_env_into_process
 from cock_monitor.storage.sqlite_connection import open_sqlite_connection
 from cock_monitor.storage.vless_repository import (
     ensure_report_tables,
@@ -35,22 +36,6 @@ class VlessReportError(Exception):
     """User-visible failure from VLESS report use-case."""
 
 
-def _get_int_env(name: str, default: int) -> int:
-    raw = os.environ.get(name, str(default)).strip()
-    try:
-        return int(raw)
-    except ValueError:
-        return default
-
-
-def _get_float_env(name: str, default: float) -> float:
-    raw = os.environ.get(name, str(default)).strip()
-    try:
-        return float(raw)
-    except ValueError:
-        return default
-
-
 def run_vless_report_use_case(
     env_file: Path,
     *,
@@ -62,20 +47,21 @@ def run_vless_report_use_case(
     if not env_path.is_file():
         raise VlessReportError(f"env file not found: {env_path}")
 
-    raw = parse_env_file(env_path)
+    loaded = load_config(env_path)
+    raw = loaded.app.raw
     merge_env_into_process(raw)
 
-    xui_db_path = os.environ.get("XUI_DB_PATH", "").strip()
+    xui_db_path = loaded.app.vless.xui_db_path
     if not xui_db_path:
         raise VlessReportError("XUI_DB_PATH is required")
     metrics_db = os.environ.get("METRICS_DB", DEFAULT_METRICS_DB).strip()
-    tz_name = os.environ.get("VLESS_DAILY_TZ", "Europe/Moscow").strip() or "Europe/Moscow"
-    top_n = max(1, _get_int_env("VLESS_DAILY_TOP_N", 10))
-    abuse_gb = max(0.0, _get_float_env("VLESS_ABUSE_GB", 20.0))
-    abuse_share_pct = max(0.0, _get_float_env("VLESS_ABUSE_SHARE_PCT", 40.0))
-    min_total_mb = max(0, _get_int_env("VLESS_DAILY_MIN_TOTAL_MB", 500))
-    ip_top_k = max(1, _get_int_env("VLESS_IP_TOP_K", 3))
-    ip_parse_max_mb = max(1, _get_int_env("VLESS_IP_PARSE_MAX_MB", 256))
+    tz_name = loaded.app.vless.daily_tz
+    top_n = loaded.app.vless.daily_top_n
+    abuse_gb = loaded.app.vless.abuse_gb
+    abuse_share_pct = loaded.app.vless.abuse_share_pct
+    min_total_mb = loaded.app.vless.daily_min_total_mb
+    ip_top_k = loaded.app.vless.ip_top_k
+    ip_parse_max_mb = loaded.app.vless.ip_parse_max_mb
     ip_parse_max_bytes = ip_parse_max_mb * 1024 * 1024
 
     try:
@@ -83,9 +69,7 @@ def run_vless_report_use_case(
     except ValueError:
         raise VlessReportError(f"invalid VLESS_DAILY_TZ={tz_name!r}") from None
 
-    telegram_tz_name = (
-        os.environ.get("VLESS_TELEGRAM_DISPLAY_TZ", "Europe/Moscow").strip() or "Europe/Moscow"
-    )
+    telegram_tz_name = loaded.app.vless.telegram_display_tz
     try:
         telegram_display_tz = load_tz(telegram_tz_name)
     except ValueError:
@@ -206,8 +190,8 @@ def run_vless_report_use_case(
                 print(report_text)
                 sent_ok = True
             else:
-                token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-                chat = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+                token = loaded.app.telegram.bot_token
+                chat = loaded.app.telegram.chat_id
                 if not token or not chat:
                     raise VlessReportError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID required")
                 TelegramClient(token).send_message(chat, report_text, parse_mode="HTML")

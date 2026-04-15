@@ -8,8 +8,9 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from cock_monitor.config_loader import load_config
 from cock_monitor.defaults import DEFAULT_METRICS_DB
-from cock_monitor.env import merge_env_into_process, parse_env_file
+from cock_monitor.env import merge_env_into_process
 from cock_monitor.storage.sqlite_connection import open_sqlite_connection
 
 _CAPTION_MAX = 1024
@@ -156,7 +157,8 @@ def run_daily_chart(
     if not env_path.is_file():
         raise FileNotFoundError(str(env_path))
 
-    raw = parse_env_file(env_path)
+    loaded = load_config(env_path)
+    raw = loaded.app.raw
     merge_env_into_process(raw)
 
     db_path = os.environ.get("METRICS_DB", DEFAULT_METRICS_DB).strip()

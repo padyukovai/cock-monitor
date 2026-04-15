@@ -10,14 +10,14 @@
 
    ```bash
    sudo mkdir -p /opt/cock-monitor
-   sudo cp -a bin lib telegram_bot cock_monitor systemd config.example.env README.md /opt/cock-monitor/
+   sudo cp -a bin lib telegram_bot cock_monitor systemd config.example.env config.minimal.env README.md /opt/cock-monitor/
    sudo chmod +x /opt/cock-monitor/bin/check-conntrack.sh /opt/cock-monitor/bin/cock-status.sh
    ```
 
 2. Создайте конфиг с секретами:
 
    ```bash
-   sudo cp /opt/cock-monitor/config.example.env /etc/cock-monitor.env
+   sudo cp /opt/cock-monitor/config.minimal.env /etc/cock-monitor.env
    sudo chmod 600 /etc/cock-monitor.env
    ```
 
@@ -38,6 +38,12 @@
 
 ```bash
 cd /opt/cock-monitor && sudo python3 -m cock_monitor preflight /etc/cock-monitor.env
+```
+
+Явная валидация самого `.env` (диапазоны, зависимые ключи, предупреждения):
+
+```bash
+cd /opt/cock-monitor && sudo python3 -m cock_monitor config-check /etc/cock-monitor.env
 ```
 
 Если `/etc/cock-monitor.env` ещё не создан, команда всё равно проверит `python3`, `curl` и `sqlite3`; путь к env можно не указывать — по умолчанию используется `/etc/cock-monitor.env`, при отсутствии файла выводится предупреждение и пропускаются проверки, зависящие от переменных. Только базовые проверки: `python3 -m cock_monitor preflight --minimal`.
@@ -198,7 +204,8 @@ sudo systemctl status cock-monitor.service
 
 ## Конфигурация
 
-Шаблон без секретов: [`config.example.env`](config.example.env).
+Стартовый шаблон: [`config.minimal.env`](config.minimal.env) (быстрый старт).  
+Полный reference по всем подсистемам: [`config.example.env`](config.example.env).
 
 Основные переменные:
 
@@ -265,7 +272,8 @@ ORDER BY c.ts;
 "
 ```
 
-Подробные переменные см. в [`config.example.env`](config.example.env).
+Рекомендуемый поток: начать с [`config.minimal.env`](config.minimal.env), затем по мере включения модулей переносить нужные блоки из [`config.example.env`](config.example.env).  
+После каждого изменения запускать `python3 -m cock_monitor config-check /etc/cock-monitor.env`.
 
 ### Суточный график в Telegram
 

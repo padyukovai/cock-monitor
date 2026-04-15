@@ -5,8 +5,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from cock_monitor.config_loader import load_config
 from cock_monitor.defaults import DEFAULT_COCK_MONITOR_HOME
-from cock_monitor.env import parse_env_file
 from mtproxy_module.config import MtproxyConfig
 
 
@@ -31,24 +31,17 @@ class BotConfig:
     @classmethod
     def from_env_file(cls, env_path: Path) -> BotConfig:
         env_path = env_path.expanduser().resolve()
-        raw = parse_env_file(env_path)
-        token = raw.get("TELEGRAM_BOT_TOKEN", "").strip()
-        chat_id = raw.get("TELEGRAM_CHAT_ID", "").strip()
+        loaded = load_config(env_path)
+        raw = loaded.app.raw
+        token = loaded.app.telegram.bot_token
+        chat_id = loaded.app.telegram.chat_id
         if not token or not chat_id:
             raise ValueError(
                 "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set in the env file"
             )
-        offset = raw.get("TELEGRAM_OFFSET_FILE", "").strip() or default_offset_path(raw)
-        max_updates_raw = raw.get("MAX_UPDATES_PER_RUN", "200").strip()
-        max_seconds_raw = raw.get("MAX_SECONDS_PER_RUN", "20").strip()
-        try:
-            max_updates = int(max_updates_raw)
-        except ValueError:
-            max_updates = 200
-        try:
-            max_seconds = int(max_seconds_raw)
-        except ValueError:
-            max_seconds = 20
+        offset = loaded.app.telegram.offset_file or default_offset_path(raw)
+        max_updates = loaded.app.telegram.max_updates_per_run
+        max_seconds = loaded.app.telegram.max_seconds_per_run
         home = os.environ.get("COCK_MONITOR_HOME", DEFAULT_COCK_MONITOR_HOME)
         return cls(
             env_file=env_path,

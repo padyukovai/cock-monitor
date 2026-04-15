@@ -18,7 +18,7 @@ from cock_monitor.adapters.linux_host import (
     read_hostname_fqdn,
     read_load_mem_from_proc,
 )
-from cock_monitor.env import parse_env_file
+from cock_monitor.config_loader import load_config
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -77,7 +77,8 @@ def apply_incident_defaults() -> None:
 
 def load_env_overwrite(path: Path) -> None:
     """Like bash `set -a; source file` — keys from file override process env."""
-    raw = parse_env_file(path)
+    loaded = load_config(path)
+    raw = loaded.app.raw
     for k, v in raw.items():
         os.environ[k] = v
 

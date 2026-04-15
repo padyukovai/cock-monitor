@@ -16,7 +16,7 @@ from mtproxy_module.reports import build_period_caption
 from mtproxy_module.repository import connect_db, init_schema, summary_rows
 from telegram_bot.telegram_client import TelegramClient
 
-from cock_monitor.env import parse_env_file
+from cock_monitor.config_loader import load_config
 
 
 def run(argv: list[str] | None = None) -> int:
@@ -32,7 +32,8 @@ def run(argv: list[str] | None = None) -> int:
         print(f"cock-mtproxy-daily: env file not found: {env_path}", file=sys.stderr)
         return 1
 
-    raw = parse_env_file(env_path)
+    loaded = load_config(env_path)
+    raw = loaded.app.raw
     cfg = MtproxyConfig.from_env_map(raw)
     if not cfg.enabled:
         return 0
@@ -66,8 +67,8 @@ def run(argv: list[str] | None = None) -> int:
     )
 
     if args.send_telegram:
-        token = raw.get("TELEGRAM_BOT_TOKEN", "").strip()
-        chat_id = raw.get("TELEGRAM_CHAT_ID", "").strip()
+        token = loaded.app.telegram.bot_token
+        chat_id = loaded.app.telegram.chat_id
         if not token or not chat_id:
             print("cock-mtproxy-daily: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required", file=sys.stderr)
             conn.close()

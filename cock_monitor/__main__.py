@@ -37,6 +37,10 @@ def main(argv: list[str] | None = None) -> int:
         from cock_monitor.conntrack_storage_cli import run as conntrack_storage_run
 
         return conntrack_storage_run(a[1:])
+    if a[:1] == ["config-check"]:
+        from cock_monitor.config_check_cli import run as config_check_run
+
+        return config_check_run(a[1:])
     if a[:1] == ["preflight"]:
         a = a[1:]
     if a[:1] in (["help"], ["-h"], ["--help"]):
