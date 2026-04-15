@@ -19,27 +19,8 @@ from mtproxy_module.core import (
     init_schema,
     store_metric,
 )
+from cock_monitor.env import merge_env_into_process, parse_env_file
 from telegram_bot.telegram_client import TelegramClient
-
-
-def _parse_env_file(path: Path) -> dict[str, str]:
-    out: dict[str, str] = {}
-    text = path.read_text(encoding="utf-8", errors="replace")
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].strip()
-        if "=" not in line:
-            continue
-        key, _, val = line.partition("=")
-        key = key.strip()
-        val = val.strip()
-        if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
-            val = val[1:-1]
-        out[key] = val
-    return out
 
 
 def main() -> int:
@@ -51,10 +32,8 @@ def main() -> int:
     if not env_path.is_file():
         print(f"cock-mtproxy-collect: env file not found: {env_path}", file=sys.stderr)
         return 1
-    raw = _parse_env_file(env_path)
-    for k, v in raw.items():
-        if k not in os.environ:
-            os.environ[k] = v
+    raw = parse_env_file(env_path)
+    merge_env_into_process(raw)
     cfg = MtproxyConfig.from_env_map(raw)
     if not cfg.enabled:
         return 0

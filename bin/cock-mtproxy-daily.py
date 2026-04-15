@@ -15,30 +15,11 @@ if str(ROOT) not in sys.path:
 
 from mtproxy_module.charts import generate_mtproxy_chart
 from mtproxy_module.core import MtproxyConfig, build_period_caption, connect_db, init_schema, summary_rows
+from cock_monitor.env import parse_env_file
 from telegram_bot.telegram_client import TelegramClient
 
 
 MSK_TZ = timezone(timedelta(hours=3), name="MSK")
-
-
-def _parse_env_file(path: Path) -> dict[str, str]:
-    out: dict[str, str] = {}
-    text = path.read_text(encoding="utf-8", errors="replace")
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].strip()
-        if "=" not in line:
-            continue
-        key, _, val = line.partition("=")
-        key = key.strip()
-        val = val.strip()
-        if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
-            val = val[1:-1]
-        out[key] = val
-    return out
 
 
 def main() -> int:
@@ -53,7 +34,7 @@ def main() -> int:
     if not env_path.is_file():
         print(f"cock-mtproxy-daily: env file not found: {env_path}", file=sys.stderr)
         return 1
-    raw = _parse_env_file(env_path)
+    raw = parse_env_file(env_path)
     cfg = MtproxyConfig.from_env_map(raw)
     if not cfg.enabled:
         return 0

@@ -13,6 +13,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from cock_monitor.defaults import DEFAULT_METRICS_DB
+
 
 MSK_TZ = timezone(timedelta(hours=3), name="MSK")
 _GEO_TTL_SEC = 30 * 24 * 60 * 60
@@ -59,7 +61,7 @@ class MtproxyConfig:
 
     @classmethod
     def from_env_map(cls, env: dict[str, str]) -> MtproxyConfig:
-        db = env.get("METRICS_DB", "/var/lib/cock-monitor/metrics.db").strip()
+        db = env.get("METRICS_DB", DEFAULT_METRICS_DB).strip()
         return cls(
             enabled=_to_bool(env.get("MTPROXY_ENABLE"), False),
             db_path=Path(db).expanduser(),

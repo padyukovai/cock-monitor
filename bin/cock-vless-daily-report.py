@@ -16,30 +16,17 @@ from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time, timedelta, timezone, tzinfo
 from pathlib import Path
 
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from cock_monitor.defaults import DEFAULT_METRICS_DB
+from cock_monitor.env import merge_env_into_process, parse_env_file
+
 try:
     from zoneinfo import ZoneInfo  # type: ignore
 except Exception:  # pragma: no cover - python < 3.9 fallback
     ZoneInfo = None  # type: ignore[misc,assignment]
-
-
-def _parse_env_file(path: Path) -> dict[str, str]:
-    out: dict[str, str] = {}
-    text = path.read_text(encoding="utf-8", errors="replace")
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].strip()
-        if "=" not in line:
-            continue
-        key, _, val = line.partition("=")
-        key = key.strip()
-        val = val.strip()
-        if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
-            val = val[1:-1]
-        out[key] = val
-    return out
 
 
 def _repo_root() -> Path:
@@ -728,16 +715,14 @@ def main() -> int:
         print(f"cock-vless-daily-report: env file not found: {env_path}", file=sys.stderr)
         return 1
 
-    raw = _parse_env_file(env_path)
-    for k, v in raw.items():
-        if k not in os.environ:
-            os.environ[k] = v
+    raw = parse_env_file(env_path)
+    merge_env_into_process(raw)
 
     xui_db_path = os.environ.get("XUI_DB_PATH", "").strip()
     if not xui_db_path:
         print("cock-vless-daily-report: XUI_DB_PATH is required", file=sys.stderr)
         return 1
-    metrics_db = os.environ.get("METRICS_DB", "/var/lib/cock-monitor/metrics.db").strip()
+    metrics_db = os.environ.get("METRICS_DB", DEFAULT_METRICS_DB).strip()
     tz_name = os.environ.get("VLESS_DAILY_TZ", "Europe/Moscow").strip() or "Europe/Moscow"
     top_n = max(1, _get_int_env("VLESS_DAILY_TOP_N", 10))
     abuse_gb = max(0.0, _get_float_env("VLESS_ABUSE_GB", 20.0))

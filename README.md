@@ -10,7 +10,7 @@
 
    ```bash
    sudo mkdir -p /opt/cock-monitor
-   sudo cp -a bin lib telegram_bot systemd config.example.env README.md /opt/cock-monitor/
+   sudo cp -a bin lib telegram_bot cock_monitor systemd config.example.env README.md /opt/cock-monitor/
    sudo chmod +x /opt/cock-monitor/bin/check-conntrack.sh /opt/cock-monitor/bin/cock-status.sh /opt/cock-monitor/bin/cock-daily-chart.py /opt/cock-monitor/bin/cock-vless-daily-report.py
    ```
 
@@ -31,6 +31,16 @@
    ```
 
    Путь задаётся в `STATE_FILE` в `/etc/cock-monitor.env` (по умолчанию `/var/lib/cock-monitor/state`). Для опроса команд Telegram дополнительно пишется файл смещения `getUpdates` (по умолчанию рядом с каталогом state, см. `TELEGRAM_OFFSET_FILE` в [`config.example.env`](config.example.env)).
+
+### Проверка окружения перед деплоем
+
+После копирования дерева в `/opt/cock-monitor` можно проверить наличие утилит на `PATH` и (если есть файл конфигурации) дополнительные зависимости по сценарию:
+
+```bash
+sudo env PYTHONPATH=/opt/cock-monitor python3 -m cock_monitor preflight /etc/cock-monitor.env
+```
+
+Если `/etc/cock-monitor.env` ещё не создан, команда всё равно проверит `curl` и `sqlite3`; путь к env можно не указывать — по умолчанию используется `/etc/cock-monitor.env`, при отсутствии файла выводится предупреждение и пропускаются проверки, зависящие от переменных. Только базовые проверки: `python3 -m cock_monitor preflight --minimal`.
 
 ### Настройка бота и chat_id
 
