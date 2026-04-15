@@ -13,7 +13,7 @@ from cock_monitor.services.vless_report import VlessReportError, run_since_last_
 from mtproxy_module.charts import generate_mtproxy_chart
 from mtproxy_module.config import MtproxyConfig
 from mtproxy_module.reports import build_period_caption, current_status_text
-from mtproxy_module.repository import init_schema, summary_rows, update_threshold
+from mtproxy_module.repository import connect_db, init_schema, summary_rows, update_threshold
 
 from telegram_bot.runtime import run_with_timeout
 from telegram_bot.status_provider import StatusProvider, truncate_for_telegram
@@ -41,7 +41,7 @@ def _run_command_with_timeout(
         _send_cmd_failure(client, chat_id, cmd, f"timed out after {timeout_sec:.0f}s")
     except known_exceptions as e:
         _send_cmd_failure(client, chat_id, cmd, str(e))
-    except (OSError, RuntimeError, ValueError) as e:
+    except (OSError, RuntimeError, ValueError, sqlite3.Error) as e:
         _send_cmd_failure(client, chat_id, cmd, str(e))
     return False, None
 
@@ -84,7 +84,6 @@ def handle_update(
     status_provider: StatusProvider,
     env_file: Path | None = None,
     mtproxy_cfg: MtproxyConfig | None = None,
-    mtproxy_conn: sqlite3.Connection | None = None,
 ) -> None:
     msg = update.get("message")
     if not isinstance(msg, dict):
@@ -106,16 +105,36 @@ def handle_update(
         return
 
     if cmd.startswith("/mt_"):
-        if not mtproxy_cfg or not mtproxy_cfg.enabled or mtproxy_conn is None:
+        if not mtproxy_cfg or not mtproxy_cfg.enabled:
             client.send_message(str(chat_id), "MTProxy module is disabled.")
             return
-        init_schema(mtproxy_conn)
-        if cmd == "/mt_status":
-            ok, body = _run_command_with_timeout(
+
+        def _run_mtproxy_query(
+            cmd_name: str,
+            query: Any,
+            *,
+            known_exceptions: tuple[type[BaseException], ...] = (),
+        ) -> tuple[bool, Any]:
+            def _wrapped() -> Any:
+                conn = connect_db(mtproxy_cfg.db_path)
+                try:
+                    init_schema(conn)
+                    return query(conn)
+                finally:
+                    conn.close()
+
+            return _run_command_with_timeout(
                 client,
                 str(chat_id),
+                cmd_name,
+                _wrapped,
+                known_exceptions=known_exceptions,
+            )
+
+        if cmd == "/mt_status":
+            ok, body = _run_mtproxy_query(
                 "mt_status",
-                lambda: current_status_text(mtproxy_conn, mtproxy_cfg),
+                lambda conn: current_status_text(conn, mtproxy_cfg),
             )
             if not ok:
                 return
@@ -127,14 +146,12 @@ def handle_update(
             try:
                 os.close(fd)
                 out = Path(tmp_path)
-                ok, payload = _run_command_with_timeout(
-                    client,
-                    str(chat_id),
+                ok, payload = _run_mtproxy_query(
                     "mt_today",
-                    lambda: (
-                        summary_rows(mtproxy_conn, start_ts),
+                    lambda conn: (
+                        summary_rows(conn, start_ts),
                         build_period_caption(
-                            mtproxy_conn,
+                            conn,
                             start_ts,
                             title="MTProxy - Report (24h)",
                             top_n=mtproxy_cfg.daily_report_top_n,
@@ -177,11 +194,9 @@ def handle_update(
             except ValueError:
                 client.send_message(str(chat_id), "Invalid value. Must be integer.")
                 return
-            ok, msg = _run_command_with_timeout(
-                client,
-                str(chat_id),
+            ok, msg = _run_mtproxy_query(
                 "mt_threshold",
-                lambda: update_threshold(mtproxy_conn, param, value),
+                lambda conn: update_threshold(conn, param, value),
             )
             if not ok:
                 return
