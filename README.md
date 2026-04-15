@@ -2,7 +2,7 @@
 
 Лёгкая проверка заполненности таблицы **nf_conntrack** на Linux VPS с алертами в **Telegram**. Запуск по расписанию (**systemd timer** или **cron**), без постоянного демона, без Prometheus/Grafana и без привязки к MTProxy.
 
-Требования: **bash**, **curl**. Опционально пакет **conntrack** (утилита `conntrack -S` для строки в сообщении и для опциональных алертов по счётчикам). Для истории метрик в SQLite и дельта-алертов нужны **sqlite3** (CLI) и каталог **`/var/lib/cock-monitor`**. Для команд бота **`/status`** и **`/chart`** в Telegram нужны **Python 3**; **`/chart`** и суточный отчёт по таймеру требуют **matplotlib** (удобнее всего пакет ОС `python3-matplotlib`, см. [requirements-chart.txt](requirements-chart.txt)). Опциональный **systemd timer** (или **cron**), см. ниже.
+Требования: **bash**, **curl**, **Python 3** (модуль `cock_monitor` в том же дереве, что и `bin/` — политика алертов conntrack). Опционально пакет **conntrack** (утилита `conntrack -S` для строки в сообщении и для опциональных алертов по счётчикам). Для истории метрик в SQLite и дельта-алертов нужны **sqlite3** (CLI) и каталог **`/var/lib/cock-monitor`**. Для команд бота **`/status`** и **`/chart`** в Telegram нужны **Python 3**; **`/chart`** и суточный отчёт по таймеру требуют **matplotlib** (удобнее всего пакет ОС `python3-matplotlib`, см. [requirements-chart.txt](requirements-chart.txt)). Опциональный **systemd timer** (или **cron**), см. ниже.
 
 ## Быстрая установка (Ubuntu / Debian)
 
@@ -361,6 +361,16 @@ Potential heavy downloaders:
 ## Логи и диск
 
 Скрипт проверки пишет небольшой **state**-файл для cooldown и при включённых метриках — файл **`metrics.db`** (порядок десятков килобайт на типичном интервале; см. retention). При включённом опросе бота добавляется файл **offset** для `getUpdates` (`TELEGRAM_OFFSET_FILE`). Не включайте избыточное логирование cron в файлы без `logrotate`.
+
+## Разработка и тесты
+
+Политика алертов conntrack (cooldown, STATS и т.д.) вынесена в пакет `cock_monitor` и покрыта unit-тестами. Запуск из корня репозитория:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+PYTHONPATH=. .venv/bin/python -m pytest tests/test_conntrack_policy.py
+```
 
 ## Критерий успеха
 

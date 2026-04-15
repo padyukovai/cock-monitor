@@ -9,6 +9,19 @@ _COCK_REPO_ROOT="$(cd "${_COCK_SCRIPT_DIR}/.." && pwd)"
 # shellcheck source=../lib/conntrack-metrics.sh
 source "${_COCK_REPO_ROOT}/lib/conntrack-metrics.sh"
 
+_cock_conntrack_decide() {
+  PYTHONPATH="${_COCK_REPO_ROOT}" python3 -m cock_monitor conntrack-decide "$@"
+}
+
+# JSON number or null (for conntrack-decide stdin).
+_cock_json_uint_or_null() {
+  [[ "${1:-}" =~ ^[0-9]+$ ]] && printf '%s' "$1" || printf 'null'
+}
+
+_cock_json_bool() {
+  [[ "$1" == "1" ]] && printf 'true' || printf 'false'
+}
+
 usage() {
   echo "Usage: ENV_FILE=/path/to.env $0" >&2
   echo "   or: $0 [--dry-run] /path/to.env" >&2
@@ -93,42 +106,6 @@ send_telegram() {
   fi
   rm -f "$out"
   return 0
-}
-
-should_send_fill_alert() {
-  local current=$1
-  local ts_prev sev_prev now
-  now=$(now_epoch)
-  ts_prev=$fill_last_ts
-  sev_prev=$fill_last_severity
-  [[ "$ts_prev" =~ ^[0-9]+$ ]] || ts_prev=0
-  [[ "$sev_prev" =~ ^[0-2]$ ]] || sev_prev=0
-
-  if [[ "$current" -eq 0 ]]; then
-    return 1
-  fi
-
-  if [[ "$current" -gt "$sev_prev" ]]; then
-    return 0
-  fi
-  if [[ "$sev_prev" -eq 0 ]]; then
-    return 0
-  fi
-  if ((now - ts_prev >= COOLDOWN_SECONDS)); then
-    return 0
-  fi
-  return 1
-}
-
-should_send_stats_alert() {
-  local now ts_prev
-  now=$(now_epoch)
-  ts_prev=$stats_last_ts
-  [[ "$ts_prev" =~ ^[0-9]+$ ]] || ts_prev=0
-  if ((now - ts_prev >= STATS_COOLDOWN_SECONDS)); then
-    return 0
-  fi
-  return 1
 }
 
 metrics_wanted() {
@@ -237,6 +214,11 @@ main() {
   apply_defaults
   [[ "$dry_run_cli" -eq 1 ]] && DRY_RUN=1
 
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "check-conntrack: python3 is required (cock_monitor domain)" >&2
+    exit 1
+  fi
+
   if [[ "$DRY_RUN" != "1" ]]; then
     [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]] || {
       echo "check-conntrack: TELEGRAM_BOT_TOKEN is required unless DRY_RUN=1" >&2
@@ -260,6 +242,7 @@ main() {
   la_last_ts=$(state_get la_last_ts)
   [[ "$la_last_ts" =~ ^[0-9]+$ ]] || la_last_ts=0
 
+  local _cock_metrics_decide_done=0
   local fill_severity=0
   local stats_note=""
   local has_ct=0
@@ -276,19 +259,26 @@ main() {
 
     if [[ "$fill_severity" -eq 0 ]]; then
       fill_last_severity=0
-    elif should_send_fill_alert "$fill_severity"; then
-      local label body
-      if [[ "$fill_severity" -eq 2 ]]; then
-        label="CRITICAL"
-      else
-        label="WARNING"
+    else
+      local fill_should_send=0
+      eval "$(_cock_conntrack_decide --shell <<EOF
+{"phase":"fill","now_ts":$(now_epoch),"fill_severity":${fill_severity},"fill_last_ts":${fill_last_ts},"fill_last_severity":${fill_last_severity},"cooldown_seconds":${COOLDOWN_SECONDS}}
+EOF
+)" || exit 1
+      if [[ "$fill_should_send" -eq 1 ]]; then
+        local label body
+        if [[ "$fill_severity" -eq 2 ]]; then
+          label="CRITICAL"
+        else
+          label="WARNING"
+        fi
+        local moscow_time; moscow_time=$(TZ='Europe/Moscow' date +'%Y-%m-%d %H:%M:%S MSK')
+        body="${label} conntrack fill on ${host} (${moscow_time})"$'\n'"${FILL_PCT}% (${FILL_COUNT}/${FILL_MAX}) warn>=${WARN_PERCENT}% crit>=${CRIT_PERCENT}%"
+        [[ -n "$stats_note" ]] && body+=$'\n'"${stats_note}"
+        send_telegram "$body" || exit 1
+        fill_last_ts=$(now_epoch)
+        fill_last_severity=$fill_severity
       fi
-      local moscow_time; moscow_time=$(TZ='Europe/Moscow' date +'%Y-%m-%d %H:%M:%S MSK')
-      body="${label} conntrack fill on ${host} (${moscow_time})"$'\n'"${FILL_PCT}% (${FILL_COUNT}/${FILL_MAX}) warn>=${WARN_PERCENT}% crit>=${CRIT_PERCENT}%"
-      [[ -n "$stats_note" ]] && body+=$'\n'"${stats_note}"
-      send_telegram "$body" || exit 1
-      fill_last_ts=$(now_epoch)
-      fill_last_severity=$fill_severity
     fi
     fp_sql=$FILL_PCT
     fc_sql=$FILL_COUNT
@@ -326,23 +316,11 @@ main() {
         IFS='|' read -r p_ts p_drop p_if p_ed p_er p_inv p_sr <<<"$prev_line"
         [[ "$p_ts" =~ ^[0-9]+$ ]] || p_ts=""
       fi
-      if [[ "$has_ct" -eq 1 && -n "${p_ts:-}" ]]; then
-        interval_sec=$((now_ts - p_ts))
-        if [[ "$interval_sec" -gt 0 ]]; then
-          [[ "$p_drop" =~ ^[0-9]+$ ]] || p_drop=0
-          [[ "$p_if" =~ ^[0-9]+$ ]] || p_if=0
-          [[ "$p_ed" =~ ^[0-9]+$ ]] || p_ed=0
-          [[ "$p_er" =~ ^[0-9]+$ ]] || p_er=0
-          [[ "$p_inv" =~ ^[0-9]+$ ]] || p_inv=0
-          [[ "$p_sr" =~ ^[0-9]+$ ]] || p_sr=0
-          dd=$(u32_counter_delta "$p_drop" "$drop_sum")
-          di=$(u32_counter_delta "$p_if" "$if_sum")
-          de=$(u32_counter_delta "$p_ed" "$ed_sum")
-          derr=$(u32_counter_delta "$p_er" "$er_sum")
-          dinv=$(u32_counter_delta "$p_inv" "$inv_sum")
-          dsr=$(u32_counter_delta "$p_sr" "$sr_sum")
-        fi
-      fi
+      eval "$(_cock_conntrack_decide --shell <<EOF
+{"phase":"metrics","now_ts":${now_ts},"has_conntrack":$(_cock_json_bool "${has_ct}"),"p_ts":$(_cock_json_uint_or_null "${p_ts:-}"),"p_drop":$(_cock_json_uint_or_null "${p_drop:-}"),"p_if":$(_cock_json_uint_or_null "${p_if:-}"),"p_ed":$(_cock_json_uint_or_null "${p_ed:-}"),"p_er":$(_cock_json_uint_or_null "${p_er:-}"),"p_inv":$(_cock_json_uint_or_null "${p_inv:-}"),"p_sr":$(_cock_json_uint_or_null "${p_sr:-}"),"drop_sum":${drop_sum},"if_sum":${if_sum},"ed_sum":${ed_sum},"er_sum":${er_sum},"inv_sum":${inv_sum},"sr_sum":${sr_sum},"alert_on_stats":$(_cock_json_bool "${ALERT_ON_STATS:-0}"),"alert_on_stats_delta":$(_cock_json_bool "${ALERT_ON_STATS_DELTA:-0}"),"stats_last_ts":${stats_last_ts},"stats_cooldown_seconds":${STATS_COOLDOWN_SECONDS},"stats_drop_min":${STATS_DROP_MIN:-0},"stats_insert_failed_min":${STATS_INSERT_FAILED_MIN:-0},"stats_delta_min_interval_sec":${STATS_DELTA_MIN_INTERVAL_SEC:-60},"stats_delta_drop_min":${STATS_DELTA_DROP_MIN:-0},"stats_delta_insert_failed_min":${STATS_DELTA_INSERT_FAILED_MIN:-0},"stats_delta_early_drop_min":${STATS_DELTA_EARLY_DROP_MIN:-0},"stats_delta_error_min":${STATS_DELTA_ERROR_MIN:-0},"stats_delta_invalid_min":${STATS_DELTA_INVALID_MIN:-0},"stats_delta_search_restart_min":${STATS_DELTA_SEARCH_RESTART_MIN:-0},"stats_rate_drop_per_min":${STATS_RATE_DROP_PER_MIN:-0},"stats_rate_insert_failed_per_min":${STATS_RATE_INSERT_FAILED_PER_MIN:-0},"stats_rate_early_drop_per_min":${STATS_RATE_EARLY_DROP_PER_MIN:-0},"stats_rate_error_per_min":${STATS_RATE_ERROR_PER_MIN:-0},"stats_rate_invalid_per_min":${STATS_RATE_INVALID_PER_MIN:-0},"stats_rate_search_restart_per_min":${STATS_RATE_SEARCH_RESTART_PER_MIN:-0}}
+EOF
+)" || exit 1
+      _cock_metrics_decide_done=1
 
       local do_insert=0
       if [[ "$METRICS_RECORD_EVERY_RUN" == "1" || "$ALERT_ON_STATS_DELTA" == "1" ]]; then
@@ -470,77 +448,19 @@ SQL
     fi
   fi
 
-  local stats_fire=0 stats_reason=""
+  if [[ "$_cock_metrics_decide_done" -eq 0 ]]; then
+    eval "$(_cock_conntrack_decide --shell <<EOF
+{"phase":"metrics","now_ts":${now_ts},"has_conntrack":$(_cock_json_bool "${has_ct}"),"p_ts":null,"p_drop":null,"p_if":null,"p_ed":null,"p_er":null,"p_inv":null,"p_sr":null,"drop_sum":${drop_sum},"if_sum":${if_sum},"ed_sum":${ed_sum},"er_sum":${er_sum},"inv_sum":${inv_sum},"sr_sum":${sr_sum},"alert_on_stats":$(_cock_json_bool "${ALERT_ON_STATS:-0}"),"alert_on_stats_delta":$(_cock_json_bool "${ALERT_ON_STATS_DELTA:-0}"),"stats_last_ts":${stats_last_ts},"stats_cooldown_seconds":${STATS_COOLDOWN_SECONDS},"stats_drop_min":${STATS_DROP_MIN:-0},"stats_insert_failed_min":${STATS_INSERT_FAILED_MIN:-0},"stats_delta_min_interval_sec":${STATS_DELTA_MIN_INTERVAL_SEC:-60},"stats_delta_drop_min":${STATS_DELTA_DROP_MIN:-0},"stats_delta_insert_failed_min":${STATS_DELTA_INSERT_FAILED_MIN:-0},"stats_delta_early_drop_min":${STATS_DELTA_EARLY_DROP_MIN:-0},"stats_delta_error_min":${STATS_DELTA_ERROR_MIN:-0},"stats_delta_invalid_min":${STATS_DELTA_INVALID_MIN:-0},"stats_delta_search_restart_min":${STATS_DELTA_SEARCH_RESTART_MIN:-0},"stats_rate_drop_per_min":${STATS_RATE_DROP_PER_MIN:-0},"stats_rate_insert_failed_per_min":${STATS_RATE_INSERT_FAILED_PER_MIN:-0},"stats_rate_early_drop_per_min":${STATS_RATE_EARLY_DROP_PER_MIN:-0},"stats_rate_error_per_min":${STATS_RATE_ERROR_PER_MIN:-0},"stats_rate_invalid_per_min":${STATS_RATE_INVALID_PER_MIN:-0},"stats_rate_search_restart_per_min":${STATS_RATE_SEARCH_RESTART_PER_MIN:-0}}
+EOF
+)" || exit 1
+  fi
 
   if [[ "$has_ct" -eq 1 ]]; then
-    if [[ "$ALERT_ON_STATS" == "1" ]]; then
-      if [[ "$STATS_DROP_MIN" =~ ^[0-9]+$ && "$STATS_DROP_MIN" -gt 0 && "$drop_sum" -ge "$STATS_DROP_MIN" ]]; then
-        stats_fire=1
-        stats_reason="cumulative: drop=${drop_sum} (>=${STATS_DROP_MIN})"
-      fi
-      if [[ "$STATS_INSERT_FAILED_MIN" =~ ^[0-9]+$ && "$STATS_INSERT_FAILED_MIN" -gt 0 && "$if_sum" -ge "$STATS_INSERT_FAILED_MIN" ]]; then
-        stats_fire=1
-        stats_reason="${stats_reason:+$stats_reason; }cumulative: insert_failed=${if_sum} (>=${STATS_INSERT_FAILED_MIN})"
-      fi
-    fi
-
-    if [[ "$ALERT_ON_STATS_DELTA" == "1" && "${interval_sec:-}" =~ ^[0-9]+$ && "$interval_sec" -gt 0 && "$interval_sec" -ge "${STATS_DELTA_MIN_INTERVAL_SEC:-60}" ]]; then
-      [[ "$STATS_DELTA_MIN_INTERVAL_SEC" =~ ^[0-9]+$ ]] || STATS_DELTA_MIN_INTERVAL_SEC=60
-      local rd=0 ri=0 re=0 rerr=0 rin=0 rsr=0
-      [[ "$dd" =~ ^[0-9]+$ ]] && rd=$((dd * 60 / interval_sec))
-      [[ "$di" =~ ^[0-9]+$ ]] && ri=$((di * 60 / interval_sec))
-      [[ "$de" =~ ^[0-9]+$ ]] && re=$((de * 60 / interval_sec))
-      [[ "$derr" =~ ^[0-9]+$ ]] && rerr=$((derr * 60 / interval_sec))
-      [[ "$dinv" =~ ^[0-9]+$ ]] && rin=$((dinv * 60 / interval_sec))
-      [[ "$dsr" =~ ^[0-9]+$ ]] && rsr=$((dsr * 60 / interval_sec))
-      local dpart=0
-      if [[ "$dd" =~ ^[0-9]+$ && "$STATS_DELTA_DROP_MIN" =~ ^[0-9]+$ && "$STATS_DELTA_DROP_MIN" -gt 0 && "$dd" -ge "$STATS_DELTA_DROP_MIN" ]]; then
-        dpart=1
-      fi
-      if [[ "$STATS_RATE_DROP_PER_MIN" =~ ^[0-9]+$ && "$STATS_RATE_DROP_PER_MIN" -gt 0 && "$rd" -ge "$STATS_RATE_DROP_PER_MIN" ]]; then
-        dpart=1
-      fi
-      if [[ "$di" =~ ^[0-9]+$ && "$STATS_DELTA_INSERT_FAILED_MIN" =~ ^[0-9]+$ && "$STATS_DELTA_INSERT_FAILED_MIN" -gt 0 && "$di" -ge "$STATS_DELTA_INSERT_FAILED_MIN" ]]; then
-        dpart=1
-      fi
-      if [[ "$STATS_RATE_INSERT_FAILED_PER_MIN" =~ ^[0-9]+$ && "$STATS_RATE_INSERT_FAILED_PER_MIN" -gt 0 && "$ri" -ge "$STATS_RATE_INSERT_FAILED_PER_MIN" ]]; then
-        dpart=1
-      fi
-      if [[ "$de" =~ ^[0-9]+$ && "$STATS_DELTA_EARLY_DROP_MIN" =~ ^[0-9]+$ && "$STATS_DELTA_EARLY_DROP_MIN" -gt 0 && "$de" -ge "$STATS_DELTA_EARLY_DROP_MIN" ]]; then
-        dpart=1
-      fi
-      if [[ "$STATS_RATE_EARLY_DROP_PER_MIN" =~ ^[0-9]+$ && "$STATS_RATE_EARLY_DROP_PER_MIN" -gt 0 && "$re" -ge "$STATS_RATE_EARLY_DROP_PER_MIN" ]]; then
-        dpart=1
-      fi
-      if [[ "$derr" =~ ^[0-9]+$ && "$STATS_DELTA_ERROR_MIN" =~ ^[0-9]+$ && "$STATS_DELTA_ERROR_MIN" -gt 0 && "$derr" -ge "$STATS_DELTA_ERROR_MIN" ]]; then
-        dpart=1
-      fi
-      if [[ "$STATS_RATE_ERROR_PER_MIN" =~ ^[0-9]+$ && "$STATS_RATE_ERROR_PER_MIN" -gt 0 && "$rerr" -ge "$STATS_RATE_ERROR_PER_MIN" ]]; then
-        dpart=1
-      fi
-      if [[ "$dinv" =~ ^[0-9]+$ && "$STATS_DELTA_INVALID_MIN" =~ ^[0-9]+$ && "$STATS_DELTA_INVALID_MIN" -gt 0 && "$dinv" -ge "$STATS_DELTA_INVALID_MIN" ]]; then
-        dpart=1
-      fi
-      if [[ "$STATS_RATE_INVALID_PER_MIN" =~ ^[0-9]+$ && "$STATS_RATE_INVALID_PER_MIN" -gt 0 && "$rin" -ge "$STATS_RATE_INVALID_PER_MIN" ]]; then
-        dpart=1
-      fi
-      if [[ "$dsr" =~ ^[0-9]+$ && "$STATS_DELTA_SEARCH_RESTART_MIN" =~ ^[0-9]+$ && "$STATS_DELTA_SEARCH_RESTART_MIN" -gt 0 && "$dsr" -ge "$STATS_DELTA_SEARCH_RESTART_MIN" ]]; then
-        dpart=1
-      fi
-      if [[ "$STATS_RATE_SEARCH_RESTART_PER_MIN" =~ ^[0-9]+$ && "$STATS_RATE_SEARCH_RESTART_PER_MIN" -gt 0 && "$rsr" -ge "$STATS_RATE_SEARCH_RESTART_PER_MIN" ]]; then
-        dpart=1
-      fi
-      if [[ "$dpart" -eq 1 ]]; then
-        stats_fire=1
-        stats_reason="${stats_reason:+$stats_reason; }delta (${interval_sec}s): drop+${dd:-?} (~${rd}/min) insert_failed+${di:-?} early_drop+${de:-?} error+${derr:-?} invalid+${dinv:-?} search_restart+${dsr:-?}"
-      fi
-    fi
-
     if [[ "$stats_fire" -eq 1 ]]; then
       local stats_body
       local moscow_time; moscow_time=$(TZ='Europe/Moscow' date +'%Y-%m-%d %H:%M:%S MSK')
       stats_body="STATS ${host} (${moscow_time})"$'\n'"${stats_reason}"$'\n'"$(conntrack_stats_line)"$'\n'"$(format_stats_alert_host_context)"
-      if should_send_stats_alert; then
+      if [[ "${stats_send_telegram:-0}" -eq 1 ]]; then
         send_telegram "$stats_body" || exit 1
         stats_last_ts=$(now_epoch)
       fi

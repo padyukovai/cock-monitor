@@ -9,6 +9,10 @@ from cock_monitor.preflight import main as preflight_main
 
 def main(argv: list[str] | None = None) -> int:
     a = list(argv if argv is not None else sys.argv[1:])
+    if a[:1] == ["conntrack-decide"]:
+        from cock_monitor.conntrack_decide_cli import run as conntrack_decide_run
+
+        return conntrack_decide_run(a[1:])
     if a[:1] == ["preflight"]:
         a = a[1:]
     if a[:1] in (["help"], ["-h"], ["--help"]):
