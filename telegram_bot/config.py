@@ -7,7 +7,7 @@ from typing import Mapping
 
 from cock_monitor.defaults import DEFAULT_COCK_MONITOR_HOME
 from cock_monitor.env import parse_env_file
-from mtproxy_module.core import MtproxyConfig
+from mtproxy_module.config import MtproxyConfig
 
 
 def default_offset_path(env: Mapping[str, str]) -> str:

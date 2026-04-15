@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 
-
-MSK_TZ = timezone(timedelta(hours=3), name="MSK")
+from mtproxy_module.formatting import MSK_TZ
 
 
 def generate_mtproxy_chart(rows: list[tuple], output_path: Path, *, title: str) -> None:

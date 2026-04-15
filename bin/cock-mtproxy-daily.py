@@ -6,7 +6,7 @@ import os
 import sys
 import tempfile
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -14,12 +14,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from mtproxy_module.charts import generate_mtproxy_chart
-from mtproxy_module.core import MtproxyConfig, build_period_caption, connect_db, init_schema, summary_rows
+from mtproxy_module.config import MtproxyConfig
+from mtproxy_module.formatting import MSK_TZ
+from mtproxy_module.repository import connect_db, init_schema, summary_rows
+from mtproxy_module.reports import build_period_caption
 from cock_monitor.env import parse_env_file
 from telegram_bot.telegram_client import TelegramClient
-
-
-MSK_TZ = timezone(timedelta(hours=3), name="MSK")
 
 
 def main() -> int:

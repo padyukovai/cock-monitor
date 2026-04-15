@@ -10,15 +10,10 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from mtproxy_module.core import (
-    MtproxyConfig,
-    collect_connections,
-    collect_traffic,
-    connect_db,
-    evaluate_alerts,
-    init_schema,
-    store_metric,
-)
+from mtproxy_module.alerts import evaluate_alerts
+from mtproxy_module.collector import collect_connections
+from mtproxy_module.config import MtproxyConfig
+from mtproxy_module.repository import collect_traffic, connect_db, init_schema, store_metric
 from cock_monitor.env import merge_env_into_process, parse_env_file
 from telegram_bot.telegram_client import TelegramClient
 

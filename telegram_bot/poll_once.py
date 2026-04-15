@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mtproxy_module.core import connect_db, init_schema
+from mtproxy_module.repository import connect_db, init_schema
 from telegram_bot.config import BotConfig
 from telegram_bot.handlers import handle_update
 from telegram_bot.offset_store import read_offset, write_offset

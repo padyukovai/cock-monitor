@@ -10,14 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from mtproxy_module.charts import generate_mtproxy_chart
-from mtproxy_module.core import (
-    MtproxyConfig,
-    build_period_caption,
-    current_status_text,
-    init_schema,
-    summary_rows,
-    update_threshold,
-)
+from mtproxy_module.config import MtproxyConfig
+from mtproxy_module.repository import init_schema, summary_rows, update_threshold
+from mtproxy_module.reports import build_period_caption, current_status_text
 from telegram_bot.status_provider import StatusProvider, truncate_for_telegram
 from telegram_bot.telegram_client import TelegramClient
 
