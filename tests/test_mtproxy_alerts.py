@@ -5,7 +5,6 @@ from __future__ import annotations
 import sqlite3
 
 import pytest
-
 from mtproxy_module.repository import can_send_alert, init_schema, record_alert
 
 

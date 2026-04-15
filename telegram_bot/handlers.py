@@ -12,8 +12,9 @@ from cock_monitor.services.daily_chart import run_daily_chart
 from cock_monitor.services.vless_report import VlessReportError, run_since_last_sent_with_telegram
 from mtproxy_module.charts import generate_mtproxy_chart
 from mtproxy_module.config import MtproxyConfig
-from mtproxy_module.repository import init_schema, summary_rows, update_threshold
 from mtproxy_module.reports import build_period_caption, current_status_text
+from mtproxy_module.repository import init_schema, summary_rows, update_threshold
+
 from telegram_bot.runtime import run_with_timeout
 from telegram_bot.status_provider import StatusProvider, truncate_for_telegram
 from telegram_bot.telegram_client import TelegramClient

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
-import os
 from pathlib import Path
 
 from cock_monitor.domain.conntrack_policy import (

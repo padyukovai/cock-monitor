@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
 
 from cock_monitor.defaults import DEFAULT_COCK_MONITOR_HOME
 from cock_monitor.env import parse_env_file

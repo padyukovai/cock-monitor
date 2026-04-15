@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import timedelta, timezone
 
-
 MSK_TZ = timezone(timedelta(hours=3), name="MSK")
 
 

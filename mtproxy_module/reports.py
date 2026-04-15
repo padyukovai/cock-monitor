@@ -5,7 +5,7 @@ import sqlite3
 from collections import defaultdict
 from datetime import datetime
 
-from mtproxy_module.collector import check_mtproxy_alive, collect_conntrack, collect_connections
+from mtproxy_module.collector import check_mtproxy_alive, collect_connections, collect_conntrack
 from mtproxy_module.config import MtproxyConfig
 from mtproxy_module.formatting import MSK_TZ, format_bytes
 from mtproxy_module.geo import get_ips_geo_info

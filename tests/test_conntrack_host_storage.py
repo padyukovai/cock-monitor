@@ -8,7 +8,6 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-
 from cock_monitor.storage.conntrack_host_repository import (
     ConntrackHostRepository,
     ConntrackSampleInsert,

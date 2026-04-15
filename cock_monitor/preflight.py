@@ -128,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         nargs="?",
         type=Path,
         default=None,
-        help=f"Alternative to --env-file (same as README one-liner)",
+        help="Alternative to --env-file (same as README one-liner)",
     )
     args = parser.parse_args(argv)
 

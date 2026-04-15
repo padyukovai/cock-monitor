@@ -8,11 +8,14 @@ import socket
 import sqlite3
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from cock_monitor.adapters.xui_sqlite import TrafficRow, fetch_client_traffics, fetch_vless_email_set
+from cock_monitor.adapters.xui_sqlite import (
+    fetch_client_traffics,
+    fetch_vless_email_set,
+)
 from cock_monitor.defaults import DEFAULT_METRICS_DB
 from cock_monitor.domain.vless_traffic import (
     IpParseStats,
@@ -165,7 +168,7 @@ def run_vless_report(
             prev_map = get_checkpoint_map(met_conn, last_sent_ts) if last_sent_ts else {}
             if last_sent_ts:
                 last_dt = (
-                    datetime.fromtimestamp(last_sent_ts, tz=timezone.utc)
+                    datetime.fromtimestamp(last_sent_ts, tz=UTC)
                     .astimezone(telegram_display_tz)
                     .strftime("%Y-%m-%d %H:%M:%S")
                 )
@@ -225,8 +228,8 @@ def run_vless_report(
                     else:
                         if last_sent_ts is not None:
                             end_ts = time.time()
-                            w0 = datetime.fromtimestamp(last_sent_ts, tz=timezone.utc)
-                            w1 = datetime.fromtimestamp(end_ts, tz=timezone.utc)
+                            w0 = datetime.fromtimestamp(last_sent_ts, tz=UTC)
+                            w1 = datetime.fromtimestamp(end_ts, tz=UTC)
                             agg, ip_stats = aggregate_vless_access_ips(
                                 log_paths,
                                 window_start_utc=w0,

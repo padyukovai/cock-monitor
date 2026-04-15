@@ -6,7 +6,8 @@ import ipaddress
 import re
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, time as dt_time, timedelta, timezone, tzinfo
+from datetime import UTC, date, datetime, timedelta, timezone, tzinfo
+from datetime import time as dt_time
 from pathlib import Path
 
 try:
@@ -158,7 +159,7 @@ def aggregate_vless_access_ips(
                 continue
             if dt_naive.tzinfo is not None:
                 dt_naive = dt_naive.replace(tzinfo=None)
-            log_dt = dt_naive.replace(tzinfo=log_tz).astimezone(timezone.utc)
+            log_dt = dt_naive.replace(tzinfo=log_tz).astimezone(UTC)
             if window_left_exclusive:
                 if log_dt > window_end_utc:
                     break
@@ -200,8 +201,8 @@ def aggregate_vless_access_ips(
 def daily_window_utc(prev_day_iso: str, snapshot_day_iso: str, tz_daily: tzinfo) -> tuple[datetime, datetime]:
     d0 = date.fromisoformat(prev_day_iso)
     d1 = date.fromisoformat(snapshot_day_iso)
-    start = datetime.combine(d0, dt_time.min, tzinfo=tz_daily).astimezone(timezone.utc)
-    end = datetime.combine(d1, dt_time.min, tzinfo=tz_daily).astimezone(timezone.utc)
+    start = datetime.combine(d0, dt_time.min, tzinfo=tz_daily).astimezone(UTC)
+    end = datetime.combine(d1, dt_time.min, tzinfo=tz_daily).astimezone(UTC)
     return start, end
 
 

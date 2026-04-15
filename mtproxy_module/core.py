@@ -5,8 +5,8 @@ from __future__ import annotations
 from mtproxy_module.alerts import evaluate_alerts
 from mtproxy_module.collector import (
     check_mtproxy_alive,
-    collect_conntrack,
     collect_connections,
+    collect_conntrack,
     collect_iptables_bytes,
     parse_iptables_monitor_stdout,
     parse_ss_stdout,
@@ -14,6 +14,7 @@ from mtproxy_module.collector import (
 from mtproxy_module.config import MtproxyConfig, to_bool, to_int
 from mtproxy_module.formatting import MSK_TZ, format_bytes
 from mtproxy_module.geo import get_ips_geo_info, query_geo_batch
+from mtproxy_module.reports import build_period_caption, current_status_text
 from mtproxy_module.repository import (
     can_send_alert,
     collect_traffic,
@@ -25,7 +26,6 @@ from mtproxy_module.repository import (
     summary_rows,
     update_threshold,
 )
-from mtproxy_module.reports import build_period_caption, current_status_text
 
 __all__ = [
     "MSK_TZ",

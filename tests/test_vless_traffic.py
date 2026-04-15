@@ -1,10 +1,7 @@
 """Unit tests for cock_monitor.domain.vless_traffic."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path
-
-import pytest
 
 from cock_monitor.domain import vless_traffic as vt
 
