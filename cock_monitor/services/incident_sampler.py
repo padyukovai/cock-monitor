@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from telegram_bot.telegram_client import DeliveryResult, TelegramClient
+
 from cock_monitor.adapters.linux_host import (
     parse_ss_tan_state_counts,
     read_conntrack_fill,
@@ -446,40 +448,18 @@ def state_save(path: Path, st: dict[str, str]) -> None:
     tmp.replace(path)
 
 
-def send_telegram(text: str, parse_mode: str | None = None) -> None:
+def send_telegram(text: str, parse_mode: str | None = None) -> DeliveryResult:
     if os.environ.get("DRY_RUN", "0") == "1":
         print("[DRY_RUN] incident telegram:")
         if parse_mode:
             print(f"parse_mode={parse_mode}")
         print(text)
-        return
+        return DeliveryResult(success=True, reason="dry_run", attempts=1)
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     chat = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
     if not token or not chat:
-        return
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    args = [
-        "curl",
-        "-sS",
-        "-o",
-        "/dev/null",
-        "-w",
-        "%{http_code}",
-        "-X",
-        "POST",
-        url,
-        "--data-urlencode",
-        f"chat_id={chat}",
-        "--data-urlencode",
-        "disable_web_page_preview=true",
-    ]
-    if parse_mode:
-        args.extend(["--data-urlencode", f"parse_mode={parse_mode}"])
-    args.extend(["--data-urlencode", f"text={text}"])
-    try:
-        subprocess.run(args, capture_output=True, text=True, timeout=30, check=False)
-    except (OSError, subprocess.SubprocessError):
-        pass
+        return DeliveryResult(success=False, reason="telegram_not_configured", attempts=1)
+    return TelegramClient(token).send_message_with_result(chat, text, parse_mode=parse_mode or "")
 
 
 def compute_level(
@@ -555,7 +535,12 @@ def incident_track_and_postmortem(
                         body = (r.stdout or "").strip() or "<i>incident-postmortem.py failed</i>"
                     except (OSError, subprocess.SubprocessError, ValueError):
                         body = "<i>incident-postmortem.py failed</i>"
-                    send_telegram(body, parse_mode="HTML")
+                    result = send_telegram(body, parse_mode="HTML")
+                    if not result.success:
+                        print(
+                            f"incident-sampler: telegram send failed ({result.reason})",
+                            file=sys.stderr,
+                        )
             st["incident_active"] = "0"
             st["incident_start_ts"] = "0"
             st["incident_peak_level"] = "OK"
@@ -576,8 +561,15 @@ def maybe_alert(
     changed = 1 if level != last else 0
     cooldown_due = 1 if (now_ts - last_alert_ts >= cooldown) else 0
     if (changed or cooldown_due) and (level != "OK" or last != "OK"):
-        send_telegram(snapshot_text)
-        st["last_alert_ts"] = str(now_ts)
+        result = send_telegram(snapshot_text)
+        if result.success:
+            st["last_alert_ts"] = str(now_ts)
+            print("incident-sampler: telegram alert sent", file=sys.stderr)
+        else:
+            print(
+                f"incident-sampler: telegram alert failed ({result.reason})",
+                file=sys.stderr,
+            )
 
 
 def build_json_line(

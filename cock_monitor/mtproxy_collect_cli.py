@@ -5,19 +5,48 @@ import argparse
 import sys
 from pathlib import Path
 
-from mtproxy_module.alerts import evaluate_alerts
+from mtproxy_module.alerts import AlertCandidate, evaluate_alerts
 from mtproxy_module.collector import collect_connections
 from mtproxy_module.config import MtproxyConfig
 from mtproxy_module.repository import (
     collect_traffic,
     connect_db,
     init_schema,
+    record_alert,
     scenario_transaction,
     store_metric,
 )
 from telegram_bot.telegram_client import TelegramClient
 
 from cock_monitor.env import merge_env_into_process, parse_env_file
+
+
+def dispatch_mtproxy_alerts(
+    *,
+    conn,
+    client: TelegramClient,
+    chat_id: str,
+    alerts: list[AlertCandidate],
+) -> tuple[int, int]:
+    sent = 0
+    failed = 0
+    for alert in alerts:
+        result = client.send_message_with_result(chat_id, alert.message)
+        if result.success:
+            record_alert(conn, alert.alert_type, alert.alert_key, alert.message)
+            sent += 1
+            print(
+                f"cock-mtproxy-collect: alert sent ({alert.alert_type}:{alert.alert_key})",
+                file=sys.stderr,
+            )
+        else:
+            failed += 1
+            print(
+                "cock-mtproxy-collect: alert delivery failed "
+                f"({alert.alert_type}:{alert.alert_key}) reason={result.reason}",
+                file=sys.stderr,
+            )
+    return sent, failed
 
 
 def run(argv: list[str] | None = None) -> int:
@@ -51,10 +80,6 @@ def run(argv: list[str] | None = None) -> int:
         alerts = evaluate_alerts(conn, cfg, conns, traffic)
 
     client = TelegramClient(token)
-    for msg in alerts:
-        try:
-            client.send_message(chat_id, msg)
-        except RuntimeError as e:
-            print(f"cock-mtproxy-collect: telegram send failed: {e}", file=sys.stderr)
+    dispatch_mtproxy_alerts(conn=conn, client=client, chat_id=chat_id, alerts=alerts)
     conn.close()
     return 0

@@ -1,7 +1,9 @@
 """Pure helpers from cock_monitor.services.incident_sampler."""
 from __future__ import annotations
 
+import pytest
 from cock_monitor.services import incident_sampler as ismp
+from telegram_bot.telegram_client import DeliveryResult
 
 
 def test_parse_ping_output_linux_style() -> None:
@@ -41,3 +43,25 @@ def test_safe_pct_import() -> None:
     from cock_monitor.adapters.linux_host import safe_pct
 
     assert safe_pct(17, 20) == 85
+
+
+def test_maybe_alert_sets_cooldown_only_on_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    st = {"last_level": "WARN", "last_alert_ts": "100"}
+    monkeypatch.setenv("INCIDENT_ALERT_ENABLE", "1")
+    monkeypatch.setenv("INCIDENT_ALERT_COOLDOWN_SEC", "10")
+    monkeypatch.setattr(
+        ismp,
+        "send_telegram",
+        lambda _text, parse_mode=None: DeliveryResult(success=False, reason="HTTP 500", attempts=3),
+    )
+
+    ismp.maybe_alert(120, "WARN", st, snapshot_text="snapshot")
+    assert st["last_alert_ts"] == "100"
+
+    monkeypatch.setattr(
+        ismp,
+        "send_telegram",
+        lambda _text, parse_mode=None: DeliveryResult(success=True, reason="", attempts=1),
+    )
+    ismp.maybe_alert(130, "WARN", st, snapshot_text="snapshot")
+    assert st["last_alert_ts"] == "130"

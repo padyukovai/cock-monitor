@@ -1,12 +1,60 @@
 from __future__ import annotations
 
 import json
+import random
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class DeliveryResult:
+    success: bool
+    reason: str
+    attempts: int
+
+
+class TelegramRequestError(RuntimeError):
+    def __init__(self, message: str, *, transient: bool) -> None:
+        super().__init__(message)
+        self.transient = transient
+        self.attempts = 1
+
+
+def _is_transient_http_status(status: int) -> bool:
+    return status == 429 or 500 <= status < 600
+
+
+def _retry_with_backoff(
+    action: Callable[[], T],
+    *,
+    attempts: int = 3,
+    base_delay_sec: float = 0.5,
+    jitter_sec: float = 0.2,
+) -> tuple[T, int]:
+    if attempts < 1:
+        attempts = 1
+    last_exc: Exception | None = None
+    for idx in range(attempts):
+        try:
+            return action(), idx + 1
+        except TelegramRequestError as e:
+            last_exc = e
+            e.attempts = idx + 1
+            if not e.transient or idx == attempts - 1:
+                raise
+            delay = base_delay_sec * (2**idx) + random.uniform(0, jitter_sec)
+            time.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
 
 
 class TelegramClient:
@@ -29,18 +77,21 @@ class TelegramClient:
         url = self._base + "getUpdates?" + urllib.parse.urlencode(params)
         req = urllib.request.Request(url, method="GET")
         try:
-            with urllib.request.urlopen(req, timeout=max(30, timeout + 5)) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"getUpdates HTTP {e.code}: {err_body}") from e
-        except urllib.error.URLError as e:
-            raise RuntimeError(f"getUpdates network error: {e}") from e
+            body, _ = _retry_with_backoff(
+                lambda: self._request_json(req, timeout=max(30, timeout + 5), operation="getUpdates")
+            )
+        except TelegramRequestError as e:
+            raise RuntimeError(str(e)) from e
         if not body.get("ok"):
             raise RuntimeError(f"getUpdates API error: {body!r}")
         return list(body.get("result") or [])
 
     def send_message(self, chat_id: str, text: str, *, parse_mode: str = "") -> None:
+        result = self.send_message_with_result(chat_id, text, parse_mode=parse_mode)
+        if not result.success:
+            raise RuntimeError(result.reason)
+
+    def send_message_with_result(self, chat_id: str, text: str, *, parse_mode: str = "") -> DeliveryResult:
         url = self._base + "sendMessage"
         payload: dict[str, str] = {
             "chat_id": chat_id,
@@ -52,15 +103,15 @@ class TelegramClient:
         data = urllib.parse.urlencode(payload).encode("utf-8")
         req = urllib.request.Request(url, data=data, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"sendMessage HTTP {e.code}: {err_body}") from e
-        except urllib.error.URLError as e:
-            raise RuntimeError(f"sendMessage network error: {e}") from e
+            body, used_attempts = _retry_with_backoff(
+                lambda: self._request_json(req, timeout=60, operation="sendMessage")
+            )
+        except TelegramRequestError as e:
+            return DeliveryResult(success=False, reason=str(e), attempts=e.attempts)
         if not body.get("ok"):
-            raise RuntimeError(f"sendMessage API error: {body!r}")
+            reason = f"sendMessage API error: {body!r}"
+            return DeliveryResult(success=False, reason=reason, attempts=used_attempts)
+        return DeliveryResult(success=True, reason="", attempts=used_attempts)
 
     def send_photo(
         self,
@@ -109,12 +160,30 @@ class TelegramClient:
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                out = json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"sendPhoto HTTP {e.code}: {err_body}") from e
-        except urllib.error.URLError as e:
-            raise RuntimeError(f"sendPhoto network error: {e}") from e
+            out, _ = _retry_with_backoff(lambda: self._request_json(req, timeout=120, operation="sendPhoto"))
+        except TelegramRequestError as e:
+            raise RuntimeError(str(e)) from e
         if not out.get("ok"):
             raise RuntimeError(f"sendPhoto API error: {out!r}")
+
+    def _request_json(
+        self,
+        req: urllib.request.Request,
+        *,
+        timeout: int,
+        operation: str,
+    ) -> dict[str, Any]:
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")
+            raise TelegramRequestError(
+                f"{operation} HTTP {e.code}: {err_body}",
+                transient=_is_transient_http_status(e.code),
+            ) from e
+        except urllib.error.URLError as e:
+            raise TelegramRequestError(
+                f"{operation} network error: {e}",
+                transient=True,
+            ) from e
