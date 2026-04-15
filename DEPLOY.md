@@ -6,7 +6,7 @@
 
 ## Что нужно локально
 
-- `ssh` и `rsync` (есть в macOS и большинстве Linux).
+- `ssh`, `git` и `rsync` (есть в macOS и большинстве Linux).
 - Доступ по ключу к пользователю с правами **root** на целевом хосте (или подставьте другого пользователя и пути с `sudo`).
 
 Задайте хост один раз в переменной (удобно копировать команды):
@@ -24,6 +24,8 @@ export REPO_ROOT="$HOME/MyProjects/cock-monitor"
 ## Первичный деплой (с нуля)
 
 На сервере должны существовать каталоги и конфиг; проще всего выполнить с локальной машины:
+
+> Для уже работающей инсталляции (повторные деплои) предпочтителен git-путь из раздела **"Обновление (повторный выкат)"**. Ниже — bootstrap/fallback сценарий через копирование файлов.
 
 ```bash
 rsync -avz "$REPO_ROOT/bin/" "$DEPLOY_HOST:/tmp/cock-monitor-staging/"
@@ -132,9 +134,65 @@ ssh "$DEPLOY_HOST" 'systemctl enable --now cock-monitor-incident-sampler.timer &
 
 ## Обновление (повторный выкат)
 
-Синхронизируйте актуальные файлы приложения в `/opt/cock-monitor` и при изменении unit-файлов обновите systemd.
+Основной путь — синхронизация через git на сервере. Копирование файлов через `rsync` оставлено как fallback для bootstrap/аварийных случаев.
 
-### Только скрипты, lib, бот и документация (без смены `.service` / `.timer`)
+### Рекомендуемый путь: git-синхронизация на сервере (без копирования файлов)
+
+Этот путь предпочтителен для уже развернутого сервера, где `/opt/cock-monitor` — git-клон репозитория.
+
+1. На сервере проверьте чистоту рабочего дерева:
+
+   ```bash
+   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && git status --short --branch'
+   ```
+
+   Если есть локальные правки, выберите один из вариантов:
+   - сохранить временно: `git stash push -u -m "pre-deploy"`
+   - закоммитить в отдельную ветку
+   - осознанно отбросить: `git restore -- <file>`
+
+2. Обновите код:
+
+   ```bash
+   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && git fetch --all --prune && git pull --ff-only'
+   ```
+
+3. Обновите unit-файлы из репозитория в systemd и перезагрузите daemon:
+
+   ```bash
+   ssh "$DEPLOY_HOST" 'install -m644 /opt/cock-monitor/systemd/cock-monitor.service \
+     /opt/cock-monitor/systemd/cock-monitor.timer \
+     /opt/cock-monitor/systemd/cock-monitor-telegram-bot.service \
+     /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer \
+     /opt/cock-monitor/systemd/cock-monitor-daily.service \
+     /opt/cock-monitor/systemd/cock-monitor-daily.timer \
+     /opt/cock-monitor/systemd/cock-mtproxy-monitor.service \
+     /opt/cock-monitor/systemd/cock-mtproxy-monitor.timer \
+     /opt/cock-monitor/systemd/cock-mtproxy-daily.service \
+     /opt/cock-monitor/systemd/cock-mtproxy-daily.timer \
+     /opt/cock-monitor/systemd/cock-shaper.service \
+     /opt/cock-monitor/systemd/cock-shaper.timer \
+     /opt/cock-monitor/systemd/cock-monitor-incident-sampler.service \
+     /opt/cock-monitor/systemd/cock-monitor-incident-sampler.timer \
+     /etc/systemd/system/ && systemctl daemon-reload'
+   ```
+
+4. Выполните preflight/smoke и перезапустите таймеры:
+
+   ```bash
+   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && python3 -m cock_monitor preflight /etc/cock-monitor.env'
+   ssh "$DEPLOY_HOST" 'systemctl restart cock-monitor.timer && systemctl try-restart cock-monitor-telegram-bot.timer 2>/dev/null || true && systemctl try-restart cock-monitor-daily.timer 2>/dev/null || true && systemctl try-restart cock-monitor-incident-sampler.timer 2>/dev/null || true'
+   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && python3 -m cock_monitor conntrack-check --dry-run /etc/cock-monitor.env'
+   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && COCK_MONITOR_HOME=/opt/cock-monitor python3 -m telegram_bot --poll-once /etc/cock-monitor.env'
+   ```
+
+5. Если делали `git stash`, верните правки и отдельно проверьте результат:
+
+   ```bash
+   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && git stash pop || true'
+   ```
+
+### Fallback (legacy): только скрипты, lib, бот и документация (без смены `.service` / `.timer`)
 
 ```bash
 mkdir -p /tmp/cock-monitor-staging-local/telegram_bot
@@ -198,7 +256,32 @@ rm -rf /tmp/cock-monitor-staging
    ```
 6. Быстрый rollback (если нужно): вернуть backup-файлы env/БД, затем `systemctl daemon-reload` и `systemctl restart` затронутых timer/service.
 
-### Изменились unit-файлы
+## Runtime Python и зависимости (практика для безопасных апдейтов)
+
+Если после обновления появляются ошибки совместимости Python (например, код ожидает 3.11+, а системный `python3` старее), не меняйте системный интерпретатор глобально. Предпочтительно:
+
+1. Установить нужный Python рядом с системным (пример для Debian/Ubuntu: `python3.11`).
+2. Создать отдельный `venv` внутри `/opt/cock-monitor`.
+3. Установить в `venv` runtime-зависимости (`matplotlib` и т.д.).
+4. Перевести `ExecStart` python-юнитов на интерпретатор из `venv`.
+
+Пример:
+
+```bash
+ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && /usr/bin/python3.11 -m venv .venv311 && ./.venv311/bin/python -m pip install -U pip setuptools wheel matplotlib'
+ssh "$DEPLOY_HOST" 'sed -i "s#/usr/bin/python3#/opt/cock-monitor/.venv311/bin/python#g" /etc/systemd/system/cock-*.service && systemctl daemon-reload'
+```
+
+После переключения обязательно выполнить smoke по всем ключевым oneshot unit-файлам и посмотреть `journalctl` на ошибки.
+
+## Базы данных и breaking changes
+
+- Для major/refactoring-апдейтов допускается стратегия "чистого старта": старые БД/данные можно удалить после backup, если обнаружены несовместимости.
+- Минимум перед апдейтом: backup `/etc/cock-monitor.env` и файлов БД (`/var/lib/cock-monitor/*.db`).
+- Минимум после апдейта: `PRAGMA integrity_check;` и запуск прикладного smoke (`conntrack-check --dry-run`, `telegram_bot --poll-once`).
+- Если схема обновилась, запускайте встроенные миграции (`python3 -m cock_monitor conntrack-storage migrate --db <path>`).
+
+### Fallback (legacy): изменились unit-файлы
 
 ```bash
 mkdir -p /tmp/cock-monitor-staging-local/telegram_bot
