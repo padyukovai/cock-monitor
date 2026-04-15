@@ -13,7 +13,6 @@ def poll_once(cfg: BotConfig) -> None:
     store_path = cfg.offset_file
     next_off = read_offset(store_path)
     script = cfg.monitor_home / "bin" / "cock-status.sh"
-    chart_script = cfg.monitor_home / "bin" / "cock-daily-chart.py"
     provider = SubprocessStatusProvider(
         env_file=cfg.env_file,
         cock_status_sh=script,
@@ -33,9 +32,7 @@ def poll_once(cfg: BotConfig) -> None:
                 allowed_chat_id=cfg.chat_id,
                 client=client,
                 status_provider=provider,
-                chart_script=chart_script,
                 env_file=cfg.env_file,
-                monitor_home=cfg.monitor_home,
                 mtproxy_cfg=cfg.mtproxy,
                 mtproxy_conn=mtproxy_conn,
             )

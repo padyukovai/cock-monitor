@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Dynamic CPU-aware WAN egress shaper (HTB + CAKE) for VPN ports.
 # Reduces VPN bandwidth when CPU load is high to prevent crypto processing bottlenecks.
+#
+# Implementation stays in shell on purpose: this script chains ip/tc, reads /proc/stat in a
+# tight loop, and rewrites small state files atomically. A Python port would still shell out
+# to the same binaries without simplifying I/O, so the operational surface remains here.
 set -euo pipefail
 
 umask 077

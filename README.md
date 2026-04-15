@@ -334,7 +334,7 @@ Potential heavy downloaders:
 
 ### Умный "CPU-Aware" Шейпер с использованием CAKE
 
-Скрипт [`bin/cock-cpu-shaper.sh`](bin/cock-cpu-shaper.sh) (запускается по расписанию `cock-shaper.timer` каждые 10-15 секунд) отслеживает загрузку CPU. Если `cpu_pct` (вычисляется из /proc/stat) превышает пороговое значение, скрипт "прикручивает вентиль" - плавно снижает пропускную способность для VPN портов. Если нагрузка падает - скрипт вновь поднимает лимит.
+Скрипт [`bin/cock-cpu-shaper.sh`](bin/cock-cpu-shaper.sh) (запускается по расписанию `cock-shaper.timer` каждые 10-15 секунд) остаётся на bash: напрямую вызывает `tc`/`ip`, читает `/proc/stat` и атомарно обновляет state-файлы; перенос в Python не упрощает сценарий. Он отслеживает загрузку CPU: если `cpu_pct` превышает пороговое значение, скрипт «прикручивает вентиль» — плавно снижает пропускную способность для VPN портов. Если нагрузка падает — скрипт вновь поднимает лимит.
 
 Главная фишка: для ограничения скорости используется встроенный в ядро планировщик **sch_cake** в режиме `dual-dsthost`. Он автоматически делит установленную ширину канала строго поровну между всеми качающими клиентами! Никакого "встал торрент - лег VPN".
 
@@ -344,7 +344,7 @@ Potential heavy downloaders:
 
 ### Incident sampler (короткие постмортем-срезы)
 
-Скрипт [`bin/incident-sampler.sh`](bin/incident-sampler.sh) запускается отдельным таймером и пишет в JSONL короткие срезы состояния сети. Это помогает разбирать минутные деградации VPN/панели по фактам, а не по косвенным признакам.
+Скрипт [`bin/incident-sampler.sh`](bin/incident-sampler.sh) — тонкая оболочка над Python-модулем `cock_monitor.services.incident_sampler` — запускается отдельным таймером и пишет в JSONL короткие срезы состояния сети. Это помогает разбирать минутные деградации VPN/панели по фактам, а не по косвенным признакам.
 
 - **Зависимости:** на хосте должна быть команда **`ping`** (Debian/Ubuntu: пакет **`iputils-ping`**), иначе loss/latency в JSON будут некорректны.
 - **Метрики в срезе:** ping-loss/latency, DNS probe, `nf_conntrack count/max`, TCP state counts, **TCP-probe по прикладным портам** (опционально), `load1`, `MemAvailable`, `systemctl is-active` для выбранных unit.
@@ -371,7 +371,7 @@ Potential heavy downloaders:
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
-PYTHONPATH=. .venv/bin/python -m pytest tests/test_conntrack_policy.py tests/test_conntrack_host_storage.py
+PYTHONPATH=. .venv/bin/python -m pytest tests/
 ```
 
 ## Критерий успеха
