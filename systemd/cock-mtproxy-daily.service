@@ -7,7 +7,6 @@ After=network.target
 Type=oneshot
 User=root
 EnvironmentFile=-/etc/cock-monitor.env
-Environment=PYTHONPATH=/opt/cock-monitor
 WorkingDirectory=/opt/cock-monitor
-ExecStart=/usr/bin/python3 /opt/cock-monitor/bin/cock-mtproxy-daily.py --env-file /etc/cock-monitor.env --hours 24 --send-telegram
+ExecStart=/usr/bin/python3 -m cock_monitor mtproxy-daily --env-file /etc/cock-monitor.env --hours 24 --send-telegram
 

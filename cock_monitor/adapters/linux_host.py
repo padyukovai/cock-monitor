@@ -1,7 +1,9 @@
-"""Parse /proc and `ss` output for host metrics (shared with incident sampler)."""
+"""Parse Linux host metrics from /proc and lightweight system commands."""
 from __future__ import annotations
 
 import re
+import socket
+import subprocess
 from pathlib import Path
 
 
@@ -74,3 +76,48 @@ def safe_pct(n: int, d: int) -> int:
     if d <= 0:
         return 0
     return (n * 100) // d
+
+
+def read_hostname_fqdn() -> str:
+    """Best-effort host name: FQDN first, then kernel host name."""
+    try:
+        out = subprocess.run(
+            ["hostname", "-f"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+        fqdn = (out.stdout or "").strip()
+        if fqdn:
+            return fqdn
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return socket.gethostname() or "unknown-host"
+
+
+def read_sysctl_int(name: str) -> int | None:
+    """Read integer sysctl value via `sysctl -n NAME`, returning None on failure."""
+    try:
+        out = subprocess.run(
+            ["sysctl", "-n", name],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    raw = (out.stdout or "").strip()
+    if not re.fullmatch(r"[0-9]+", raw):
+        return None
+    return int(raw)
+
+
+def read_conntrack_fill() -> tuple[int, int, int]:
+    """Return (count, max, fill_pct) for nf_conntrack using sysctl."""
+    count = read_sysctl_int("net.netfilter.nf_conntrack_count") or 0
+    maxv = read_sysctl_int("net.netfilter.nf_conntrack_max") or 0
+    return count, maxv, safe_pct(count, maxv)

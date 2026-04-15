@@ -22,7 +22,7 @@ include = ["cock_monitor*", "mtproxy_module*", "telegram_bot*"]
 testpaths = ["tests"]
 pythonpath = ["."]
 
-# Ruff: пакеты и tests/ (скрипты в bin/ с sys.path — вне области; см. CI).
+# Ruff: пакеты и tests/ (bin/* остаются thin wrappers).
 [tool.ruff]
 target-version = "py311"
 line-length = 120

@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import socket
 import subprocess
 import sys
 import time
@@ -13,8 +12,9 @@ from typing import Any
 
 from cock_monitor.adapters.linux_host import (
     parse_ss_tan_state_counts,
+    read_conntrack_fill,
+    read_hostname_fqdn,
     read_load_mem_from_proc,
-    safe_pct,
 )
 from cock_monitor.env import parse_env_file
 
@@ -89,47 +89,8 @@ def resolve_env_file(argv0: str | None) -> Path | None:
     return None
 
 
-def incident_hostname() -> str:
-    try:
-        out = subprocess.run(
-            ["hostname", "-f"],
-            capture_output=True,
-            text=True,
-            timeout=3,
-            check=False,
-        )
-        h = (out.stdout or "").strip()
-        if h:
-            return h
-    except (OSError, subprocess.SubprocessError):
-        pass
-    return socket.gethostname() or "unknown-host"
-
-
-def sysctl_int(name: str) -> int | None:
-    try:
-        out = subprocess.run(
-            ["sysctl", "-n", name],
-            capture_output=True,
-            text=True,
-            timeout=3,
-            check=False,
-        )
-        if out.returncode != 0:
-            return None
-        v = (out.stdout or "").strip()
-        if re.fullmatch(r"[0-9]+", v or ""):
-            return int(v)
-    except (OSError, subprocess.SubprocessError, ValueError):
-        pass
-    return None
-
-
 def collect_conntrack() -> tuple[int, int, int]:
-    count = sysctl_int("net.netfilter.nf_conntrack_count") or 0
-    maxv = sysctl_int("net.netfilter.nf_conntrack_max") or 0
-    fill = safe_pct(count, maxv)
-    return count, maxv, fill
+    return read_conntrack_fill()
 
 
 def collect_dns(host: str, timeout_sec: int) -> tuple[int, int, str]:
@@ -689,7 +650,7 @@ def run_once() -> int:
 
     now_ts = int(time.time())
     ts_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now_ts))
-    host = incident_hostname()
+    host = read_hostname_fqdn()
     log_dir = Path(os.environ.get("INCIDENT_LOG_DIR", "/var/lib/cock-monitor"))
     state_path = Path(os.environ.get("INCIDENT_STATE_FILE", "/var/lib/cock-monitor/incident_sampler.state"))
 

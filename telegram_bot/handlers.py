@@ -22,6 +22,30 @@ from telegram_bot.telegram_client import TelegramClient
 _BOT_CMD_TIMEOUT_SEC = 120.0
 
 
+def _send_cmd_failure(client: TelegramClient, chat_id: str, cmd: str, message: str) -> None:
+    client.send_message(chat_id, f"{cmd} failed:\n{message}"[:2000])
+
+
+def _run_command_with_timeout(
+    client: TelegramClient,
+    chat_id: str,
+    cmd: str,
+    fn: Any,
+    *,
+    timeout_sec: float = _BOT_CMD_TIMEOUT_SEC,
+    known_exceptions: tuple[type[BaseException], ...] = (),
+) -> tuple[bool, Any]:
+    try:
+        return True, run_with_timeout(fn, timeout_sec)
+    except FutureTimeout:
+        _send_cmd_failure(client, chat_id, cmd, f"timed out after {timeout_sec:.0f}s")
+    except known_exceptions as e:
+        _send_cmd_failure(client, chat_id, cmd, str(e))
+    except (OSError, RuntimeError, ValueError) as e:
+        _send_cmd_failure(client, chat_id, cmd, str(e))
+    return False, None
+
+
 def _command_token(text: str) -> str | None:
     if not text or not text.startswith("/"):
         return None
@@ -87,32 +111,55 @@ def handle_update(
             return
         init_schema(mtproxy_conn)
         if cmd == "/mt_status":
-            body = current_status_text(mtproxy_conn, mtproxy_cfg)
+            ok, body = _run_command_with_timeout(
+                client,
+                str(chat_id),
+                "mt_status",
+                lambda: current_status_text(mtproxy_conn, mtproxy_cfg),
+            )
+            if not ok:
+                return
             client.send_message(str(chat_id), truncate_for_telegram(body))
             return
         if cmd == "/mt_today":
             start_ts = int(time.time()) - 24 * 3600
-            rows = summary_rows(mtproxy_conn, start_ts)
             fd, tmp_path = tempfile.mkstemp(suffix=".png")
             try:
                 os.close(fd)
                 out = Path(tmp_path)
-                generate_mtproxy_chart(
-                    rows,
-                    out,
-                    title=f"MTProxy Load - {time.strftime('%d.%m.%Y')}",
+                ok, payload = _run_command_with_timeout(
+                    client,
+                    str(chat_id),
+                    "mt_today",
+                    lambda: (
+                        summary_rows(mtproxy_conn, start_ts),
+                        build_period_caption(
+                            mtproxy_conn,
+                            start_ts,
+                            title="MTProxy - Report (24h)",
+                            top_n=mtproxy_cfg.daily_report_top_n,
+                        ),
+                    ),
                 )
-                cap = build_period_caption(
-                    mtproxy_conn,
-                    start_ts,
-                    title="MTProxy - Report (24h)",
-                    top_n=mtproxy_cfg.daily_report_top_n,
+                if not ok:
+                    return
+                rows, cap = payload
+                ok, _ = _run_command_with_timeout(
+                    client,
+                    str(chat_id),
+                    "mt_today",
+                    lambda: generate_mtproxy_chart(
+                        rows,
+                        out,
+                        title=f"MTProxy Load - {time.strftime('%d.%m.%Y')}",
+                    ),
+                    known_exceptions=(ImportError,),
                 )
+                if not ok:
+                    return
                 client.send_photo(str(chat_id), out, caption=cap)
             except ImportError:
                 client.send_message(str(chat_id), "matplotlib is required for /mt_today.")
-            except (OSError, RuntimeError) as e:
-                client.send_message(str(chat_id), f"/mt_today failed: {e}"[:2000])
             finally:
                 try:
                     Path(tmp_path).unlink(missing_ok=True)
@@ -130,7 +177,14 @@ def handle_update(
             except ValueError:
                 client.send_message(str(chat_id), "Invalid value. Must be integer.")
                 return
-            msg = update_threshold(mtproxy_conn, param, value)
+            ok, msg = _run_command_with_timeout(
+                client,
+                str(chat_id),
+                "mt_threshold",
+                lambda: update_threshold(mtproxy_conn, param, value),
+            )
+            if not ok:
+                return
             client.send_message(str(chat_id), msg[:2000])
             return
         return
@@ -147,29 +201,28 @@ def handle_update(
             def _chart() -> str:
                 return run_daily_chart(env_file, out)
 
+            ok, caption = _run_command_with_timeout(
+                client,
+                str(chat_id),
+                "chart",
+                _chart,
+                known_exceptions=(FileNotFoundError, RuntimeError),
+            )
+            if not ok:
+                return
+            if not isinstance(caption, str):
+                _send_cmd_failure(client, str(chat_id), "chart", "empty chart caption")
+                return
             try:
-                caption = run_with_timeout(_chart, _BOT_CMD_TIMEOUT_SEC)
-            except FutureTimeout:
-                client.send_message(
-                    str(chat_id),
-                    f"chart failed:\ntimed out after {_BOT_CMD_TIMEOUT_SEC:.0f}s",
-                )
-                return
-            except FileNotFoundError as e:
-                client.send_message(str(chat_id), f"chart failed:\n{e}"[:1500])
-                return
+                client.send_photo(str(chat_id), out, caption=caption)
             except ImportError as e:
                 client.send_message(
                     str(chat_id),
                     "chart failed:\nmatplotlib required (e.g. apt install python3-matplotlib)\n"
                     + str(e)[:800],
                 )
-                return
-            except RuntimeError as e:
-                client.send_message(str(chat_id), f"chart failed:\n{e}"[:1500])
-                return
-
-            client.send_photo(str(chat_id), out, caption=caption)
+            except (OSError, RuntimeError) as e:
+                _send_cmd_failure(client, str(chat_id), "chart", str(e))
         except (OSError, RuntimeError) as e:
             client.send_message(str(chat_id), f"chart error: {e}"[:2000])
         finally:
@@ -187,24 +240,19 @@ def handle_update(
         def _vless() -> None:
             run_since_last_sent_with_telegram(env_file)
 
-        try:
-            run_with_timeout(_vless, _BOT_CMD_TIMEOUT_SEC)
-        except FutureTimeout:
-            client.send_message(
-                str(chat_id),
-                f"vless_delta failed:\ntimed out after {_BOT_CMD_TIMEOUT_SEC:.0f}s",
-            )
-        except VlessReportError as e:
-            client.send_message(str(chat_id), f"vless_delta failed:\n{e}"[:1500])
+        _run_command_with_timeout(
+            client,
+            str(chat_id),
+            "vless_delta",
+            _vless,
+            known_exceptions=(VlessReportError,),
+        )
         return
 
     if cmd != "/status":
         return
     ok, body = status_provider.get_status()
     if not ok:
-        client.send_message(
-            str(chat_id),
-            "Status failed:\n" + body[:2000],
-        )
+        _send_cmd_failure(client, str(chat_id), "status", body)
         return
     client.send_message(str(chat_id), truncate_for_telegram(body))

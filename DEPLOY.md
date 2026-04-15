@@ -85,9 +85,10 @@ systemctl enable --now cock-monitor.timer
 '
 ```
 
-После первого деплоя отредактируйте на сервере `/etc/cock-monitor.env` и при необходимости проверьте разовый запуск:
+После первого деплоя отредактируйте на сервере `/etc/cock-monitor.env`, проверьте preflight и при необходимости выполните разовый запуск:
 
 ```bash
+ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && python3 -m cock_monitor preflight /etc/cock-monitor.env'
 ssh "$DEPLOY_HOST" 'systemctl start cock-monitor.service && systemctl status cock-monitor.service --no-pager'
 ```
 
@@ -109,7 +110,7 @@ ssh "$DEPLOY_HOST" 'install -m644 /opt/cock-monitor/systemd/cock-mtproxy-monitor
 
 Перед включением таймеров убедитесь, что в `/etc/cock-monitor.env` задано `MTPROXY_ENABLE=1`.
 
-Суточный график в Telegram (**`cock-monitor-daily.timer`**) нужен **matplotlib** (например `apt install python3-matplotlib` на Debian/Ubuntu) и накопленные строки в `METRICS_DB` от `check-conntrack.sh`:
+Суточный график в Telegram (**`cock-monitor-daily.timer`**) нужен **matplotlib** (например `apt install python3-matplotlib` на Debian/Ubuntu) и накопленные строки в `METRICS_DB` от `python -m cock_monitor conntrack-check`:
 
 ```bash
 ssh "$DEPLOY_HOST" 'apt-get update && apt-get install -y python3-matplotlib sqlite3'
@@ -167,6 +168,35 @@ rm -rf /tmp/cock-monitor-staging
 ```
 
 `config.example.env` на сервере — справочный шаблон; **боевой конфиг** `/etc/cock-monitor.env` этими командами не трогается. Если появились новые переменные в примере, вручную допишите их в `/etc/cock-monitor.env`.
+
+## Upgrade guide (breaking-aware)
+
+Для уже работающих инсталляций обновление до текущего контракта делайте в таком порядке:
+
+1. Снимите бэкап перед изменениями:
+   ```bash
+   ssh "$DEPLOY_HOST" 'cp -a /etc/cock-monitor.env /etc/cock-monitor.env.bak.$(date +%F-%H%M%S)'
+   ssh "$DEPLOY_HOST" 'test -f /var/lib/cock-monitor/metrics.db && cp -a /var/lib/cock-monitor/metrics.db /var/lib/cock-monitor/metrics.db.bak.$(date +%F-%H%M%S) || true'
+   ```
+2. Обновите файлы по инструкции выше (раздел "Изменились unit-файлы").
+3. Примените новый preflight:
+   ```bash
+   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && python3 -m cock_monitor preflight /etc/cock-monitor.env'
+   ```
+   Важно: preflight теперь валидирует связку `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` и проверяет зависимости по включённым фичам (`ping` для incident sampler, `tc`/`ip` для shaper).
+4. Перезагрузите systemd-юниты и проверьте ExecStart:
+   ```bash
+   ssh "$DEPLOY_HOST" 'systemctl daemon-reload && systemctl restart cock-monitor.timer && systemctl try-restart cock-monitor-incident-sampler.timer 2>/dev/null || true'
+   ssh "$DEPLOY_HOST" 'systemctl cat cock-monitor.service | sed -n "/ExecStart/p"'
+   ssh "$DEPLOY_HOST" 'systemctl cat cock-monitor-incident-sampler.service | sed -n "/ExecStart/p"'
+   ```
+   Ожидаемо: `python3 -m cock_monitor conntrack-check ...` и `python3 -m cock_monitor.services.incident_sampler ...`.
+5. Smoke после апдейта:
+   ```bash
+   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && python3 -m cock_monitor conntrack-check --dry-run /etc/cock-monitor.env'
+   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && COCK_MONITOR_HOME=/opt/cock-monitor python3 -m telegram_bot --poll-once /etc/cock-monitor.env'
+   ```
+6. Быстрый rollback (если нужно): вернуть backup-файлы env/БД, затем `systemctl daemon-reload` и `systemctl restart` затронутых timer/service.
 
 ### Изменились unit-файлы
 

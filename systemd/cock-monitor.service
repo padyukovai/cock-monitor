@@ -8,8 +8,8 @@ Type=oneshot
 User=root
 # Optional: default EnvironmentFile path on the server (adjust or duplicate in override).
 EnvironmentFile=-/etc/cock-monitor.env
-# Edit the script path to match where you cloned this repository.
-ExecStart=/opt/cock-monitor/bin/check-conntrack.sh /etc/cock-monitor.env
+WorkingDirectory=/opt/cock-monitor
+ExecStart=/usr/bin/python3 -m cock_monitor conntrack-check /etc/cock-monitor.env
 
 [Install]
 WantedBy=multi-user.target

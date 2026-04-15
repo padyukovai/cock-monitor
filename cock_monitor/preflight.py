@@ -42,6 +42,7 @@ def run_preflight(
     lines: list[str] = []
 
     for label, req in (
+        ("python3", True),
         ("curl", True),
         ("sqlite3", True),
     ):
@@ -72,6 +73,12 @@ def run_preflight(
                 ok = False
 
     if ok and env and not minimal:
+        bot_token = env.get("TELEGRAM_BOT_TOKEN", "").strip()
+        chat_id = env.get("TELEGRAM_CHAT_ID", "").strip()
+        if bool(bot_token) != bool(chat_id):
+            lines.append("ERROR: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set together")
+            ok = False
+
         if _to_bool(env.get("MTPROXY_ENABLE")):
             for name in ("ss", "iptables", "pgrep"):
                 text, step_ok = _check_tool(name, required=True)
@@ -90,9 +97,18 @@ def run_preflight(
             else:
                 lines.append(f"ok: XUI_DB_PATH readable: {p}")
 
-        want_matplotlib = _to_bool(env.get("MTPROXY_ENABLE")) or bool(
-            env.get("METRICS_DB", "").strip()
-        )
+        if _to_bool(env.get("INCIDENT_SAMPLER_ENABLE")):
+            text, step_ok = _check_tool("ping", required=True)
+            lines.append(text)
+            ok = ok and step_ok
+
+        if _to_bool(env.get("SHAPER_ENABLE")):
+            for name in ("tc", "ip"):
+                text, step_ok = _check_tool(name, required=True)
+                lines.append(text)
+                ok = ok and step_ok
+
+        want_matplotlib = _to_bool(env.get("MTPROXY_ENABLE")) or bool(env.get("METRICS_DB", "").strip())
         if want_matplotlib:
             try:
                 import matplotlib  # noqa: F401

@@ -11,7 +11,7 @@
    ```bash
    sudo mkdir -p /opt/cock-monitor
    sudo cp -a bin lib telegram_bot cock_monitor systemd config.example.env README.md /opt/cock-monitor/
-   sudo chmod +x /opt/cock-monitor/bin/check-conntrack.sh /opt/cock-monitor/bin/cock-status.sh /opt/cock-monitor/bin/cock-daily-chart.py /opt/cock-monitor/bin/cock-vless-daily-report.py
+   sudo chmod +x /opt/cock-monitor/bin/check-conntrack.sh /opt/cock-monitor/bin/cock-status.sh
    ```
 
 2. Создайте конфиг с секретами:
@@ -37,10 +37,10 @@
 После копирования дерева в `/opt/cock-monitor` можно проверить наличие утилит на `PATH` и (если есть файл конфигурации) дополнительные зависимости по сценарию:
 
 ```bash
-sudo env PYTHONPATH=/opt/cock-monitor python3 -m cock_monitor preflight /etc/cock-monitor.env
+cd /opt/cock-monitor && sudo python3 -m cock_monitor preflight /etc/cock-monitor.env
 ```
 
-Если `/etc/cock-monitor.env` ещё не создан, команда всё равно проверит `curl` и `sqlite3`; путь к env можно не указывать — по умолчанию используется `/etc/cock-monitor.env`, при отсутствии файла выводится предупреждение и пропускаются проверки, зависящие от переменных. Только базовые проверки: `python3 -m cock_monitor preflight --minimal`.
+Если `/etc/cock-monitor.env` ещё не создан, команда всё равно проверит `python3`, `curl` и `sqlite3`; путь к env можно не указывать — по умолчанию используется `/etc/cock-monitor.env`, при отсутствии файла выводится предупреждение и пропускаются проверки, зависящие от переменных. Только базовые проверки: `python3 -m cock_monitor preflight --minimal`.
 
 ### Настройка бота и chat_id
 
@@ -54,16 +54,16 @@ sudo env PYTHONPATH=/opt/cock-monitor python3 -m cock_monitor preflight /etc/coc
 
 ### Проверка вручную
 
-С реальными секретами (отправит сообщение, если сработали пороги и cooldown):
+С реальными секретами (канонический entrypoint; отправит сообщение, если сработали пороги и cooldown):
 
 ```bash
-sudo /opt/cock-monitor/bin/check-conntrack.sh /etc/cock-monitor.env
+cd /opt/cock-monitor && sudo python3 -m cock_monitor conntrack-check /etc/cock-monitor.env
 ```
 
 Без Telegram (только вывод текста на экран):
 
 ```bash
-sudo /opt/cock-monitor/bin/check-conntrack.sh --dry-run /etc/cock-monitor.env
+cd /opt/cock-monitor && sudo python3 -m cock_monitor conntrack-check --dry-run /etc/cock-monitor.env
 ```
 
 Или в `.env`: `DRY_RUN=1` (тогда токен и chat_id не обязательны). Флаг `--dry-run` удобен для разового прогона поверх боевого `.env`.
@@ -76,10 +76,10 @@ sudo /opt/cock-monitor/bin/cock-status.sh /etc/cock-monitor.env
 
 ### Опционально: команды в Telegram (`/status`, `/chart`, `/vless_delta`)
 
-Алерты по-прежнему шлёт `check-conntrack.sh` по расписанию. Чтобы **по запросу** получать полный текст статуса в том же чате, включите опрос **getUpdates** без постоянного демона: разовый запуск Python по таймеру.
+Алерты по расписанию шлёт `python -m cock_monitor conntrack-check` (в `systemd/cock-monitor.service`). Чтобы **по запросу** получать полный текст статуса в том же чате, включите опрос **getUpdates** без постоянного демона: разовый запуск Python по таймеру.
 
 - **`/chart`** строит PNG за последние 24 часа из `METRICS_DB` тем же скриптом, что и ежедневный таймер; на сервере должен быть установлен **matplotlib**.
-- **`/vless_delta`** запускает `bin/cock-vless-daily-report.py` в режиме `since-last-sent` и отправляет отчёт по VLESS-дельте с момента **предыдущего `/vless_delta` или другого запуска в том же режиме**.
+- **`/vless_delta`** запускает `python -m cock_monitor vless-report --mode since-last-sent --send-telegram` и отправляет отчёт по VLESS-дельте с момента **предыдущего `/vless_delta` или другого запуска в том же режиме**.
 
 - Команды обрабатываются только из чата с вашим `TELEGRAM_CHAT_ID` (как и исходящие алерты).
 - Максимальная задержка ответа ≈ периоду таймера (по умолчанию **3 минуты** в [`systemd/cock-monitor-telegram-bot.timer`](systemd/cock-monitor-telegram-bot.timer)).
@@ -102,10 +102,10 @@ sudo systemctl start cock-monitor-telegram-bot.service
 sudo systemctl status cock-monitor-telegram-bot.service --no-pager
 ```
 
-Ручной запуск того же, что делает service (нужны `PYTHONPATH` и `COCK_MONITOR_HOME`):
+Ручной запуск того же, что делает service (нужен `COCK_MONITOR_HOME`):
 
 ```bash
-sudo env PYTHONPATH=/opt/cock-monitor COCK_MONITOR_HOME=/opt/cock-monitor \
+cd /opt/cock-monitor && sudo env COCK_MONITOR_HOME=/opt/cock-monitor \
   python3 -m telegram_bot --poll-once /etc/cock-monitor.env
 ```
 
@@ -192,6 +192,10 @@ sudo systemctl status cock-monitor.service
 
 Не перенаправляйте вывод в большие файлы без ротации: на маленьком диске это быстро забивает корень.
 
+## Upgrade для существующих инсталляций
+
+Короткий migration path для breaking-изменений operational-контракта вынесен в [`DEPLOY.md`](DEPLOY.md), раздел **`Upgrade guide (breaking-aware)`**: backup `env`/`metrics.db`, обновление unit-файлов, `preflight`, smoke и rollback.
+
 ## Конфигурация
 
 Шаблон без секретов: [`config.example.env`](config.example.env).
@@ -265,7 +269,7 @@ ORDER BY c.ts;
 
 ### Суточный график в Telegram
 
-Скрипт [`bin/cock-daily-chart.py`](bin/cock-daily-chart.py) читает `METRICS_DB`, строит PNG (доля заполнения и дельты по интервалам) и может отправить его через Bot API.
+Команда `python -m cock_monitor daily-chart` читает `METRICS_DB`, строит PNG (доля заполнения и дельты по интервалам) и может отправить его через Bot API.
 
 - По расписанию: unit-файлы [`systemd/cock-monitor-daily.service`](systemd/cock-monitor-daily.service) и [`systemd/cock-monitor-daily.timer`](systemd/cock-monitor-daily.timer) (по умолчанию **00:05**). Нужны **matplotlib** и те же `TELEGRAM_*`, что и для алертов.
 - Окно в часах задаётся **`DAILY_CHART_HOURS`** в `.env` (по умолчанию 24) или флагом `--hours` при ручном запуске.
@@ -273,12 +277,12 @@ ORDER BY c.ts;
 Пример ручной генерации файла без отправки:
 
 ```bash
-sudo python3 /opt/cock-monitor/bin/cock-daily-chart.py --env-file /etc/cock-monitor.env --output /tmp/cock.png
+cd /opt/cock-monitor && sudo python3 -m cock_monitor daily-chart --env-file /etc/cock-monitor.env --output /tmp/cock.png
 ```
 
 ### Суточный отчёт по VLESS-клиентам 3x-ui
 
-Скрипт [`bin/cock-vless-daily-report.py`](bin/cock-vless-daily-report.py) читает счётчики `up/down` из `3x-ui` SQLite (`XUI_DB_PATH`) в read-only режиме, сохраняет snapshot в `METRICS_DB`, считает дельты по `email` и отправляет Top потребителей в Telegram.
+Команда `python -m cock_monitor vless-report` читает счётчики `up/down` из `3x-ui` SQLite (`XUI_DB_PATH`) в read-only режиме, сохраняет snapshot в `METRICS_DB`, считает дельты по `email` и отправляет Top потребителей в Telegram.
 
 - Таймзона отчёта задаётся `VLESS_DAILY_TZ` (по умолчанию `Europe/Moscow`).
 - Время в тексте Telegram (например момент последней отправки в `since-last-sent`) показывается в `VLESS_TELEGRAM_DISPLAY_TZ` (по умолчанию `Europe/Moscow`), независимо от TZ контейнера 3x-ui.
@@ -308,13 +312,13 @@ systemctl list-timers cock-vless-daily.timer --no-pager
 Ручная проверка без отправки в Telegram:
 
 ```bash
-sudo python3 /opt/cock-monitor/bin/cock-vless-daily-report.py --env-file /etc/cock-monitor.env --dry-run
+cd /opt/cock-monitor && sudo python3 -m cock_monitor vless-report --env-file /etc/cock-monitor.env --dry-run
 ```
 
 Явно запросить режим `daily` (сравнение `D` против `D-1`):
 
 ```bash
-sudo python3 /opt/cock-monitor/bin/cock-vless-daily-report.py --env-file /etc/cock-monitor.env --dry-run --mode daily
+cd /opt/cock-monitor && sudo python3 -m cock_monitor vless-report --env-file /etc/cock-monitor.env --dry-run --mode daily
 ```
 
 Пример содержимого отчёта:
@@ -344,7 +348,7 @@ Potential heavy downloaders:
 
 ### Incident sampler (короткие постмортем-срезы)
 
-Скрипт [`bin/incident-sampler.sh`](bin/incident-sampler.sh) — тонкая оболочка над Python-модулем `cock_monitor.services.incident_sampler` — запускается отдельным таймером и пишет в JSONL короткие срезы состояния сети. Это помогает разбирать минутные деградации VPN/панели по фактам, а не по косвенным признакам.
+Сервис incident sampler запускает Python-модуль `cock_monitor.services.incident_sampler` (unit: [`systemd/cock-monitor-incident-sampler.service`](systemd/cock-monitor-incident-sampler.service)) и пишет в JSONL короткие срезы состояния сети. Это помогает разбирать минутные деградации VPN/панели по фактам, а не по косвенным признакам.
 
 - **Зависимости:** на хосте должна быть команда **`ping`** (Debian/Ubuntu: пакет **`iputils-ping`**), иначе loss/latency в JSON будут некорректны.
 - **Метрики в срезе:** ping-loss/latency, DNS probe, `nf_conntrack count/max`, TCP state counts, **TCP-probe по прикладным портам** (опционально), `load1`, `MemAvailable`, `systemctl is-active` для выбранных unit.
@@ -357,7 +361,7 @@ Potential heavy downloaders:
 - **TCP-probe (рекомендуется):** задайте `INCIDENT_TCP_PROBE_PORTS="443 2053 37346"` и оба target: `INCIDENT_TCP_PROBE_LOCAL_TARGET=127.0.0.1` + `INCIDENT_TCP_PROBE_EXTERNAL_TARGET=<PUBLIC_IP_OR_DNS>`. Тогда в каждом срезе считаются отдельные fail-счётчики local/external и общий итог. Пороговые параметры: `INCIDENT_TCP_PROBE_WARN_FAILS`, `INCIDENT_TCP_PROBE_CRIT_FAILS`.
 - **Расписание:** [`systemd/cock-monitor-incident-sampler.timer`](systemd/cock-monitor-incident-sampler.timer) (по умолчанию каждые 10 секунд).
 - **Логи:** `${INCIDENT_LOG_DIR}/incident-YYYYMMDD.jsonl` (по умолчанию `/var/lib/cock-monitor`).
-- **Проверка вручную:** `sudo INCIDENT_SAMPLER_ENABLE=1 /opt/cock-monitor/bin/incident-sampler.sh /etc/cock-monitor.env`
+- **Проверка вручную:** `cd /opt/cock-monitor && sudo INCIDENT_SAMPLER_ENABLE=1 python3 -m cock_monitor.services.incident_sampler /etc/cock-monitor.env`
 - **Post-mortem в Telegram:** при переходе **WARN/CRIT → OK** скрипт [`bin/incident-postmortem.py`](bin/incident-postmortem.py) читает JSONL за окно инцидента и отправляет краткий HTML-отчёт (нужны **python3** и `INCIDENT_POSTMORTEM_ENABLE=1`).
 
 ## Логи и диск
