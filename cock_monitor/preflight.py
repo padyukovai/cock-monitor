@@ -98,9 +98,19 @@ def run_preflight(
                 lines.append(f"ok: XUI_DB_PATH readable: {p}")
 
         if _to_bool(env.get("INCIDENT_SAMPLER_ENABLE")):
-            text, step_ok = _check_tool("ping", required=True)
-            lines.append(text)
-            ok = ok and step_ok
+            for name in ("ping", "timeout", "getent", "ss"):
+                text, step_ok = _check_tool(name, required=True)
+                lines.append(text)
+                ok = ok and step_ok
+            units_raw = env.get("INCIDENT_SYSTEMD_UNITS", "").strip()
+            if units_raw:
+                text, step_ok = _check_tool("systemctl", required=True)
+                lines.append(text)
+                ok = ok and step_ok
+            if env.get("INCIDENT_TCP_PROBE_PORTS", "").strip():
+                text, step_ok = _check_tool("ip", required=True)
+                lines.append(text)
+                ok = ok and step_ok
 
         if _to_bool(env.get("SHAPER_ENABLE")):
             for name in ("tc", "ip"):

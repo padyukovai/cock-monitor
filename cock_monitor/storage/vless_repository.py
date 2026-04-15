@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from cock_monitor.adapters.xui_sqlite import TrafficRow, safe_i64
 
@@ -56,7 +58,6 @@ def ensure_report_tables(conn: sqlite3.Connection) -> None:
         ON vless_report_checkpoints(ts)
         """
     )
-    conn.commit()
 
 
 def upsert_snapshot(
@@ -79,7 +80,6 @@ def upsert_snapshot(
         """,
         [(snapshot_day_msk, ts, r.email, r.up, r.down, r.total) for r in rows],
     )
-    conn.commit()
 
 
 def get_snapshot_map(conn: sqlite3.Connection, day_msk: str) -> dict[str, int]:
@@ -145,7 +145,6 @@ def save_checkpoint(
         """,
         [(ts, r.email, r.total, source) for r in rows],
     )
-    conn.commit()
 
 
 def save_report_meta(
@@ -183,4 +182,18 @@ def save_report_meta(
             1 if sent_ok else 0,
         ),
     )
-    conn.commit()
+
+
+@contextmanager
+def transaction(conn: sqlite3.Connection, *, immediate: bool = True) -> Iterator[None]:
+    if conn.in_transaction:
+        yield
+        return
+    conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
+    try:
+        yield
+    except Exception:
+        conn.rollback()
+        raise
+    else:
+        conn.commit()

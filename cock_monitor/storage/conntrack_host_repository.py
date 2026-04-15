@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from cock_monitor.storage.migrations_conntrack_host import migrate_conntrack_host
+from cock_monitor.storage.sqlite_connection import open_sqlite_connection
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,7 @@ class ConntrackHostRepository:
     @contextmanager
     def open(cls, db_path: str | Path) -> Iterator[ConntrackHostRepository]:
         path = Path(db_path)
-        conn = sqlite3.connect(str(path), timeout=60.0)
+        conn = open_sqlite_connection(path)
         # Avoid implicit DEFERRED transactions so BEGIN IMMEDIATE in inserts works.
         conn.isolation_level = None
         try:

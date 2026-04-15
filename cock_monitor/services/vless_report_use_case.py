@@ -18,6 +18,7 @@ from cock_monitor.adapters.xui_sqlite import fetch_client_traffics, fetch_vless_
 from cock_monitor.defaults import DEFAULT_METRICS_DB
 from cock_monitor.domain.vless_traffic import load_tz
 from cock_monitor.env import merge_env_into_process, parse_env_file
+from cock_monitor.storage.sqlite_connection import open_sqlite_connection
 from cock_monitor.storage.vless_repository import (
     ensure_report_tables,
     get_checkpoint_map,
@@ -25,6 +26,7 @@ from cock_monitor.storage.vless_repository import (
     get_snapshot_map,
     save_checkpoint,
     save_report_meta,
+    transaction,
     upsert_snapshot,
 )
 
@@ -96,9 +98,8 @@ def run_vless_report_use_case(
     usage_day = prev_day
     ts = int(time.time())
 
-    xui_uri = f"file:{xui_db_path}?mode=ro"
     try:
-        xui_conn = sqlite3.connect(xui_uri, uri=True)
+        xui_conn = open_sqlite_connection(xui_db_path, read_only=True, wal=False)
     except sqlite3.Error as e:
         raise VlessReportError(f"open x-ui.db failed: {e}") from e
     try:
@@ -114,7 +115,7 @@ def run_vless_report_use_case(
         raise VlessReportError("no client traffic rows found")
 
     try:
-        met_conn = sqlite3.connect(metrics_db)
+        met_conn = open_sqlite_connection(metrics_db)
     except sqlite3.Error as e:
         raise VlessReportError(f"open METRICS_DB failed: {e}") from e
 
@@ -125,99 +126,95 @@ def run_vless_report_use_case(
     top1_delta = 0
     sent_ok = False
     try:
-        ensure_report_tables(met_conn)
-        upsert_snapshot(met_conn, snapshot_day_msk=snapshot_day, ts=ts, rows=rows)
-        current_map = {r.email: r.total for r in rows}
-        last_sent_ts: int | None = None
-        if mode == "daily":
-            prev_map = get_snapshot_map(met_conn, prev_day)
-            report_title = f"VLESS daily usage ({tz_name}): {usage_day}"
-            report_subtitle = "Delta period: previous day snapshot -> current snapshot"
-        else:
-            last_sent_ts = get_last_sent_checkpoint_ts(met_conn, source="since_last_sent")
-            prev_map = get_checkpoint_map(met_conn, last_sent_ts) if last_sent_ts else {}
-            if last_sent_ts:
-                last_dt = (
-                    datetime.fromtimestamp(last_sent_ts, tz=UTC)
-                    .astimezone(telegram_display_tz)
-                    .strftime("%Y-%m-%d %H:%M:%S")
-                )
-                report_subtitle = (
-                    f"Delta period: since last sent report at {last_dt} ({telegram_tz_name})"
-                )
+        with transaction(met_conn):
+            ensure_report_tables(met_conn)
+            upsert_snapshot(met_conn, snapshot_day_msk=snapshot_day, ts=ts, rows=rows)
+            current_map = {r.email: r.total for r in rows}
+            last_sent_ts: int | None = None
+            if mode == "daily":
+                prev_map = get_snapshot_map(met_conn, prev_day)
+                report_title = f"VLESS daily usage ({tz_name}): {usage_day}"
+                report_subtitle = "Delta period: previous day snapshot -> current snapshot"
             else:
-                report_subtitle = "Delta period: since last sent report (no baseline yet)"
-            report_title = f"VLESS delta since last report ({tz_name})"
-
-        ip_counts: dict[str, tuple[int, int]] | None = None
-        ip_truncated = False
-        if prev_map:
-            log_path_raw = os.environ.get("VLESS_ACCESS_LOG_PATH", "").strip()
-            if log_path_raw:
-                summary = collect_access_log_ip_summary(
-                    mode=mode,
-                    log_path_raw=log_path_raw,
-                    log_prev_raw=os.environ.get("VLESS_ACCESS_LOG_PATH_PREV", "").strip(),
-                    log_tz_name=os.environ.get("VLESS_ACCESS_LOG_TZ", "").strip() or tz_name,
-                    report_tz_name=tz_name,
-                    prev_day_iso=prev_day,
-                    snapshot_day_iso=snapshot_day,
-                    last_sent_ts=last_sent_ts,
-                    now_ts=ts,
-                    allowed_emails=vless_emails if vless_emails else set(current_map.keys()),
-                    max_bytes_per_file=ip_parse_max_bytes,
-                )
-                if summary.stats is None:
-                    print(
-                        "cock-vless-daily-report: "
-                        f"VLESS_ACCESS_LOG_PATH not a readable file: {log_path_raw!r}",
-                        file=sys.stderr,
+                last_sent_ts = get_last_sent_checkpoint_ts(met_conn, source="since_last_sent")
+                prev_map = get_checkpoint_map(met_conn, last_sent_ts) if last_sent_ts else {}
+                if last_sent_ts:
+                    last_dt = (
+                        datetime.fromtimestamp(last_sent_ts, tz=UTC)
+                        .astimezone(telegram_display_tz)
+                        .strftime("%Y-%m-%d %H:%M:%S")
+                    )
+                    report_subtitle = (
+                        f"Delta period: since last sent report at {last_dt} ({telegram_tz_name})"
                     )
                 else:
-                    ip_counts = summary.counts
-                    ip_truncated = summary.truncated
-                    print(
-                        "cock-vless-daily-report: "
-                        f"ip_parse_ms={summary.stats.elapsed_ms} "
-                        f"ip_bytes_read={summary.stats.bytes_read} "
-                        f"ip_lines_matched={summary.stats.lines_matched} "
-                        f"ip_truncated={1 if summary.stats.truncated else 0}",
-                        file=sys.stderr,
+                    report_subtitle = "Delta period: since last sent report (no baseline yet)"
+                report_title = f"VLESS delta since last report ({tz_name})"
+
+            ip_counts: dict[str, tuple[int, int]] | None = None
+            ip_truncated = False
+            if prev_map:
+                log_path_raw = os.environ.get("VLESS_ACCESS_LOG_PATH", "").strip()
+                if log_path_raw:
+                    summary = collect_access_log_ip_summary(
+                        mode=mode,
+                        log_path_raw=log_path_raw,
+                        log_prev_raw=os.environ.get("VLESS_ACCESS_LOG_PATH_PREV", "").strip(),
+                        log_tz_name=os.environ.get("VLESS_ACCESS_LOG_TZ", "").strip() or tz_name,
+                        report_tz_name=tz_name,
+                        prev_day_iso=prev_day,
+                        snapshot_day_iso=snapshot_day,
+                        last_sent_ts=last_sent_ts,
+                        now_ts=ts,
+                        allowed_emails=vless_emails if vless_emails else set(current_map.keys()),
+                        max_bytes_per_file=ip_parse_max_bytes,
                     )
+                    if summary.stats is None:
+                        print(
+                            "cock-vless-daily-report: "
+                            f"VLESS_ACCESS_LOG_PATH not a readable file: {log_path_raw!r}",
+                            file=sys.stderr,
+                        )
+                    else:
+                        ip_counts = summary.counts
+                        ip_truncated = summary.truncated
+                        print(
+                            "cock-vless-daily-report: "
+                            f"ip_parse_ms={summary.stats.elapsed_ms} "
+                            f"ip_bytes_read={summary.stats.bytes_read} "
+                            f"ip_lines_matched={summary.stats.lines_matched} "
+                            f"ip_truncated={1 if summary.stats.truncated else 0}",
+                            file=sys.stderr,
+                        )
 
-        report_text, active_clients, total_delta, top1_email, top1_delta = format_vless_report(
-            host=socket.gethostname(),
-            title=report_title,
-            subtitle=report_subtitle,
-            current_map=current_map,
-            prev_map=prev_map,
-            top_n=top_n,
-            abuse_gb=abuse_gb,
-            abuse_share_pct=abuse_share_pct,
-            min_total_mb=min_total_mb,
-            ip_counts=ip_counts,
-            ip_top_k=ip_top_k,
-            ip_truncated=ip_truncated,
-        )
+            report_text, active_clients, total_delta, top1_email, top1_delta = format_vless_report(
+                host=socket.gethostname(),
+                title=report_title,
+                subtitle=report_subtitle,
+                current_map=current_map,
+                prev_map=prev_map,
+                top_n=top_n,
+                abuse_gb=abuse_gb,
+                abuse_share_pct=abuse_share_pct,
+                min_total_mb=min_total_mb,
+                ip_counts=ip_counts,
+                ip_top_k=ip_top_k,
+                ip_truncated=ip_truncated,
+            )
 
-        if dry_run or not send_telegram:
-            print(report_text)
-            sent_ok = True
-        else:
-            token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-            chat = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
-            if not token or not chat:
-                raise VlessReportError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID required")
-            TelegramClient(token).send_message(chat, report_text, parse_mode="HTML")
-            sent_ok = True
-            if mode == "since-last-sent":
-                save_checkpoint(met_conn, ts=ts, rows=rows, source="since_last_sent")
-    except sqlite3.Error as e:
-        raise VlessReportError(f"sqlite failure: {e}") from e
-    except RuntimeError as e:
-        raise VlessReportError(str(e)) from e
-    finally:
-        try:
+            if dry_run or not send_telegram:
+                print(report_text)
+                sent_ok = True
+            else:
+                token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+                chat = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+                if not token or not chat:
+                    raise VlessReportError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID required")
+                TelegramClient(token).send_message(chat, report_text, parse_mode="HTML")
+                sent_ok = True
+                if mode == "since-last-sent":
+                    save_checkpoint(met_conn, ts=ts, rows=rows, source="since_last_sent")
+
             if report_text:
                 save_report_meta(
                     met_conn,
@@ -229,5 +226,9 @@ def run_vless_report_use_case(
                     top1_delta_bytes=top1_delta,
                     sent_ok=sent_ok,
                 )
-        finally:
-            met_conn.close()
+    except sqlite3.Error as e:
+        raise VlessReportError(f"sqlite failure: {e}") from e
+    except RuntimeError as e:
+        raise VlessReportError(str(e)) from e
+    finally:
+        met_conn.close()

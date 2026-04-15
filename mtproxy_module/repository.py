@@ -8,6 +8,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from cock_monitor.storage.sqlite_connection import open_sqlite_connection
+
 from mtproxy_module.collector import collect_iptables_bytes
 from mtproxy_module.config import MtproxyConfig, to_int
 
@@ -15,15 +17,7 @@ MTPROXY_SCHEMA_VERSION = 1
 
 
 def connect_db(db_path: Path) -> sqlite3.Connection:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("PRAGMA busy_timeout=5000;")
-    try:
-        conn.execute("PRAGMA journal_mode=WAL;")
-    except sqlite3.Error:
-        pass
-    conn.execute("PRAGMA synchronous=NORMAL;")
-    return conn
+    return open_sqlite_connection(db_path)
 
 
 @contextmanager

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from mtproxy_module.repository import connect_db, init_schema
 
 from telegram_bot.config import BotConfig
@@ -20,12 +22,19 @@ def poll_once(cfg: BotConfig) -> None:
     if cfg.mtproxy.enabled:
         mtproxy_conn = connect_db(cfg.mtproxy.db_path)
         init_schema(mtproxy_conn)
+    started_at = time.monotonic()
+    processed_updates = 0
     while True:
+        if processed_updates >= cfg.max_updates_per_run:
+            break
+        if time.monotonic() - started_at >= cfg.max_seconds_per_run:
+            break
         updates = client.get_updates(next_off, timeout=0)
         if not updates:
             break
-        max_id = max(int(u["update_id"]) for u in updates)
+        last_processed_id = next_off - 1
         for u in updates:
+            update_id = int(u["update_id"])
             handle_update(
                 u,
                 allowed_chat_id=cfg.chat_id,
@@ -35,7 +44,13 @@ def poll_once(cfg: BotConfig) -> None:
                 mtproxy_cfg=cfg.mtproxy,
                 mtproxy_conn=mtproxy_conn,
             )
-        next_off = max_id + 1
+            last_processed_id = max(last_processed_id, update_id)
+            processed_updates += 1
+            if processed_updates >= cfg.max_updates_per_run:
+                break
+            if time.monotonic() - started_at >= cfg.max_seconds_per_run:
+                break
+        next_off = last_processed_id + 1
         write_offset(store_path, next_off)
     if mtproxy_conn is not None:
         mtproxy_conn.close()

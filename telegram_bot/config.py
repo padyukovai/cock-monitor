@@ -25,6 +25,8 @@ class BotConfig:
     offset_file: Path
     monitor_home: Path
     mtproxy: MtproxyConfig
+    max_updates_per_run: int
+    max_seconds_per_run: int
 
     @classmethod
     def from_env_file(cls, env_path: Path) -> BotConfig:
@@ -37,6 +39,16 @@ class BotConfig:
                 "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set in the env file"
             )
         offset = raw.get("TELEGRAM_OFFSET_FILE", "").strip() or default_offset_path(raw)
+        max_updates_raw = raw.get("MAX_UPDATES_PER_RUN", "200").strip()
+        max_seconds_raw = raw.get("MAX_SECONDS_PER_RUN", "20").strip()
+        try:
+            max_updates = int(max_updates_raw)
+        except ValueError:
+            max_updates = 200
+        try:
+            max_seconds = int(max_seconds_raw)
+        except ValueError:
+            max_seconds = 20
         home = os.environ.get("COCK_MONITOR_HOME", DEFAULT_COCK_MONITOR_HOME)
         return cls(
             env_file=env_path,
@@ -46,4 +58,6 @@ class BotConfig:
             offset_file=Path(offset).expanduser(),
             monitor_home=Path(home).expanduser().resolve(),
             mtproxy=MtproxyConfig.from_env_map(raw),
+            max_updates_per_run=max(1, max_updates),
+            max_seconds_per_run=max(1, max_seconds),
         )

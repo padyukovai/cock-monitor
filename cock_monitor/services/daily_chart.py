@@ -10,6 +10,7 @@ from pathlib import Path
 
 from cock_monitor.defaults import DEFAULT_METRICS_DB
 from cock_monitor.env import merge_env_into_process, parse_env_file
+from cock_monitor.storage.sqlite_connection import open_sqlite_connection
 
 _CAPTION_MAX = 1024
 
@@ -166,7 +167,7 @@ def run_daily_chart(
     title_suffix = datetime.now(moscow_tz).strftime("%Y-%m-%d %H:%M MSK")
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = open_sqlite_connection(db_path)
     except sqlite3.Error as e:
         raise RuntimeError(f"sqlite: {e}") from e
 
