@@ -79,7 +79,7 @@ def generate_chart(
         "Δ invalid",
         "Δ search_restart",
     )
-    for i, (lab, col) in enumerate(zip(labels, range(2, 8))):
+    for i, (lab, col) in enumerate(zip(labels, range(2, 8), strict=True)):
         ys = series(col)
         if any(y is not None for y in ys):
             ax2.plot(

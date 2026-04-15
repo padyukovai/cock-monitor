@@ -366,13 +366,16 @@ Potential heavy downloaders:
 
 ## Разработка и тесты
 
-Политика алертов conntrack (cooldown, STATS и т.д.) и слой SQLite для `conntrack_samples` / `host_samples` вынесены в пакет `cock_monitor` и покрыты unit-тестами. Запуск из корня репозитория:
+Политика алертов conntrack (cooldown, STATS и т.д.) и слой SQLite для `conntrack_samples` / `host_samples` вынесены в пакет `cock_monitor` и покрыты unit-тестами. Зависимости для разработки задаются в [`pyproject.toml`](pyproject.toml) (extra `dev`: pytest, ruff). Установка и тесты из корня репозитория:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
-PYTHONPATH=. .venv/bin/python -m pytest tests/
+.venv/bin/pip install -U pip
+.venv/bin/pip install -e ".[dev]"
+.venv/bin/pytest
 ```
+
+Эквивалентно: `pip install -r requirements-dev.txt` (editable-пакет и dev-инструменты). Для локальной отладки графиков (`/chart`, MTProxy PNG) дополнительно: `pip install -e ".[chart]"` или [`requirements-chart.txt`](requirements-chart.txt). В CI на push/PR выполняются `ruff` и `pytest` (см. [`.github/workflows/python-ci.yml`](.github/workflows/python-ci.yml)).
 
 ## Критерий успеха
 

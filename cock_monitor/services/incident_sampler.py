@@ -325,7 +325,6 @@ def tcp_probe_one(host: str, port: int, timeout_sec: int) -> tuple[int, int, str
     try:
         import socket as sock
 
-        deadline = time.monotonic() + timeout_sec
         s = sock.socket(sock.AF_INET, sock.SOCK_STREAM)
         s.settimeout(timeout_sec)
         try:
