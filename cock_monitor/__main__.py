@@ -13,6 +13,10 @@ def main(argv: list[str] | None = None) -> int:
         from cock_monitor.conntrack_decide_cli import run as conntrack_decide_run
 
         return conntrack_decide_run(a[1:])
+    if a[:1] == ["conntrack-storage"]:
+        from cock_monitor.conntrack_storage_cli import run as conntrack_storage_run
+
+        return conntrack_storage_run(a[1:])
     if a[:1] == ["preflight"]:
         a = a[1:]
     if a[:1] in (["help"], ["-h"], ["--help"]):

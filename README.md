@@ -2,7 +2,7 @@
 
 Лёгкая проверка заполненности таблицы **nf_conntrack** на Linux VPS с алертами в **Telegram**. Запуск по расписанию (**systemd timer** или **cron**), без постоянного демона, без Prometheus/Grafana и без привязки к MTProxy.
 
-Требования: **bash**, **curl**, **Python 3** (модуль `cock_monitor` в том же дереве, что и `bin/` — политика алертов conntrack). Опционально пакет **conntrack** (утилита `conntrack -S` для строки в сообщении и для опциональных алертов по счётчикам). Для истории метрик в SQLite и дельта-алертов нужны **sqlite3** (CLI) и каталог **`/var/lib/cock-monitor`**. Для команд бота **`/status`** и **`/chart`** в Telegram нужны **Python 3**; **`/chart`** и суточный отчёт по таймеру требуют **matplotlib** (удобнее всего пакет ОС `python3-matplotlib`, см. [requirements-chart.txt](requirements-chart.txt)). Опциональный **systemd timer** (или **cron**), см. ниже.
+Требования: **bash**, **curl**, **Python 3** (модуль `cock_monitor` в том же дереве, что и `bin/` — политика алертов conntrack, запись conntrack/host-метрик в SQLite через стандартный модуль **`sqlite3`**). Опционально пакет **conntrack** (утилита `conntrack -S` для строки в сообщении и для опциональных алертов по счётчикам). Для истории метрик и дельта-алертов нужен каталог **`/var/lib/cock-monitor`** (или другой путь к `METRICS_DB`); утилита **`sqlite3`** (CLI) не обязательна для записи, но удобна для **ручных запросов** к `METRICS_DB` (примеры ниже). Для команд бота **`/status`** и **`/chart`** в Telegram нужны **Python 3**; **`/chart`** и суточный отчёт по таймеру требуют **matplotlib** (удобнее всего пакет ОС `python3-matplotlib`, см. [requirements-chart.txt](requirements-chart.txt)). Опциональный **systemd timer** (или **cron**), см. ниже.
 
 ## Быстрая установка (Ubuntu / Debian)
 
@@ -220,7 +220,9 @@ STATS_COOLDOWN_SECONDS=3600
 
 ### История в SQLite и алерты по дельте / скорости
 
-При `METRICS_RECORD_EVERY_RUN=1` и/или `ALERT_ON_STATS_DELTA=1` скрипт пишет строки в **`METRICS_DB`** (по умолчанию `/var/lib/cock-monitor/metrics.db`): время, заполнение из `/proc`, суммы полей `conntrack -S` по CPU (`drop`, `insert_failed`, `early_drop`, `error`, `invalid`, `search_restart`) и дельты к предыдущей строке. Нужен исполняемый **`sqlite3`**.
+При `METRICS_RECORD_EVERY_RUN=1` и/или `ALERT_ON_STATS_DELTA=1` скрипт пишет строки в **`METRICS_DB`** (по умолчанию `/var/lib/cock-monitor/metrics.db`): время, заполнение из `/proc`, суммы полей `conntrack -S` по CPU (`drop`, `insert_failed`, `early_drop`, `error`, `invalid`, `search_restart`) и дельты к предыдущей строке. Запись выполняется через **Python** (`cock_monitor.storage`); отдельный бинарник **`sqlite3`** не требуется.
+
+**Версия схемы:** в той же базе создаётся таблица **`cock_monitor_schema`** (`component`, `version`). Для таблиц `conntrack_samples` и `host_samples` используется компонент **`conntrack_host`**; номер версии обновляется только миграциями этого репозитория и не пересекается с другими подсистемами (VLESS, MTProxy), которые живут в том же файле `METRICS_DB`.
 
 - **Первый замер** после пустой базы только инициализирует строку; алерты по дельте **не** отправляются.
 - **Кумулятивные** пороги `STATS_*_MIN` и **дельта/rate** (`ALERT_ON_STATS_DELTA`, `STATS_DELTA_*`, `STATS_RATE_*_PER_MIN`) могут работать **одновременно**; исходящие сообщения объединяются в один блок «STATS», общий cooldown задаётся **`STATS_COOLDOWN_SECONDS`**.
@@ -364,12 +366,12 @@ Potential heavy downloaders:
 
 ## Разработка и тесты
 
-Политика алертов conntrack (cooldown, STATS и т.д.) вынесена в пакет `cock_monitor` и покрыта unit-тестами. Запуск из корня репозитория:
+Политика алертов conntrack (cooldown, STATS и т.д.) и слой SQLite для `conntrack_samples` / `host_samples` вынесены в пакет `cock_monitor` и покрыты unit-тестами. Запуск из корня репозитория:
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
-PYTHONPATH=. .venv/bin/python -m pytest tests/test_conntrack_policy.py
+PYTHONPATH=. .venv/bin/python -m pytest tests/test_conntrack_policy.py tests/test_conntrack_host_storage.py
 ```
 
 ## Критерий успеха

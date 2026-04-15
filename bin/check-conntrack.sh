@@ -13,6 +13,10 @@ _cock_conntrack_decide() {
   PYTHONPATH="${_COCK_REPO_ROOT}" python3 -m cock_monitor conntrack-decide "$@"
 }
 
+_cock_conntrack_storage() {
+  PYTHONPATH="${_COCK_REPO_ROOT}" python3 -m cock_monitor conntrack-storage "$@"
+}
+
 # JSON number or null (for conntrack-decide stdin).
 _cock_json_uint_or_null() {
   [[ "${1:-}" =~ ^[0-9]+$ ]] && printf '%s' "$1" || printf 'null'
@@ -110,96 +114,6 @@ send_telegram() {
 
 metrics_wanted() {
   [[ "$METRICS_RECORD_EVERY_RUN" == "1" || "$ALERT_ON_STATS_DELTA" == "1" ]]
-}
-
-metrics_init_db() {
-  sqlite3 "$METRICS_DB" <<'SQL'
-CREATE TABLE IF NOT EXISTS conntrack_samples (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  ts INTEGER NOT NULL,
-  fill_pct INTEGER,
-  fill_count INTEGER,
-  fill_max INTEGER,
-  "drop" INTEGER NOT NULL DEFAULT 0,
-  insert_failed INTEGER NOT NULL DEFAULT 0,
-  early_drop INTEGER NOT NULL DEFAULT 0,
-  "error" INTEGER NOT NULL DEFAULT 0,
-  invalid INTEGER NOT NULL DEFAULT 0,
-  search_restart INTEGER NOT NULL DEFAULT 0,
-  interval_sec INTEGER,
-  delta_drop INTEGER,
-  delta_insert_failed INTEGER,
-  delta_early_drop INTEGER,
-  delta_error INTEGER,
-  delta_invalid INTEGER,
-  delta_search_restart INTEGER
-);
-CREATE INDEX IF NOT EXISTS idx_samples_ts ON conntrack_samples(ts);
-CREATE TABLE IF NOT EXISTS host_samples (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  ts INTEGER NOT NULL,
-  load1 REAL,
-  mem_avail_kb INTEGER,
-  swap_used_kb INTEGER,
-  tcp_inuse INTEGER,
-  tcp_orphan INTEGER,
-  tcp_tw INTEGER,
-  tcp6_inuse INTEGER,
-  shaper_rate_mbit REAL,
-  shaper_cpu_pct INTEGER,
-  tc_qdisc_root TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_host_samples_ts ON host_samples(ts);
-SQL
-}
-
-metrics_read_last() {
-  sqlite3 -separator '|' "$METRICS_DB" \
-    "SELECT ts, \"drop\", insert_failed, early_drop, \"error\", invalid, search_restart FROM conntrack_samples ORDER BY id DESC LIMIT 1;" 2>/dev/null || true
-}
-
-metrics_retention() {
-  [[ "$METRICS_RETENTION_DAYS" =~ ^[0-9]+$ && "$METRICS_RETENTION_DAYS" -gt 0 ]] || return 0
-  local cutoff now
-  now=$(now_epoch)
-  cutoff=$((now - METRICS_RETENTION_DAYS * 86400))
-  sqlite3 "$METRICS_DB" "DELETE FROM conntrack_samples WHERE ts < ${cutoff}; DELETE FROM host_samples WHERE ts < ${cutoff};" 2>/dev/null || true
-}
-
-metrics_trim_max_rows() {
-  [[ "$METRICS_MAX_ROWS" =~ ^[0-9]+$ && "$METRICS_MAX_ROWS" -gt 0 ]] || return 0
-  sqlite3 "$METRICS_DB" "DELETE FROM conntrack_samples WHERE id NOT IN (SELECT id FROM conntrack_samples ORDER BY id DESC LIMIT ${METRICS_MAX_ROWS});" 2>/dev/null || true
-}
-
-# Remove host rows whose timestamp no longer exists in conntrack_samples (after row-count trim).
-metrics_host_trim_orphans() {
-  sqlite3 "$METRICS_DB" "DELETE FROM host_samples WHERE ts NOT IN (SELECT ts FROM conntrack_samples);" 2>/dev/null || true
-}
-
-# Emit a non-negative integer or the SQL keyword NULL (no quotes).
-metrics_sql_uint_or_null() {
-  [[ "$1" =~ ^[0-9]+$ ]] && printf '%s' "$1" || printf 'NULL'
-}
-
-# Signed/unsigned integer for optional host columns.
-metrics_sql_int_or_null() {
-  [[ "$1" =~ ^-?[0-9]+$ ]] && printf '%s' "$1" || printf 'NULL'
-}
-
-# Non-negative decimal for load1 / shaper rate.
-metrics_sql_real_or_null() {
-  [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$|^[0-9]*\.[0-9]+$ ]] && printf '%s' "$1" || printf 'NULL'
-}
-
-# SQL string literal or NULL (escape ' as '').
-metrics_sql_quoted_text_or_null() {
-  local s=$1
-  if [[ -z "$s" ]]; then
-    printf 'NULL'
-    return 0
-  fi
-  local esc="${s//\'/\'\'}"
-  printf "'%s'" "$esc"
 }
 
 main() {
@@ -303,15 +217,18 @@ EOF
   now_ts=$(now_epoch)
 
   if [[ "$DRY_RUN" != "1" ]] && metrics_wanted; then
-    if ! command -v sqlite3 >/dev/null 2>&1; then
-      echo "check-conntrack: sqlite3 not found; metrics and delta alerts skipped" >&2
+    if ! python3 -c "import sqlite3" >/dev/null 2>&1; then
+      echo "check-conntrack: Python sqlite3 module missing; metrics and delta alerts skipped" >&2
     else
       local dbdir
       dbdir=$(dirname "$METRICS_DB")
       mkdir -p "$dbdir" 2>/dev/null || true
-      metrics_init_db
+      _cock_conntrack_storage migrate --db "$METRICS_DB" || {
+        echo "check-conntrack: metrics DB migrate failed" >&2
+        exit 1
+      }
       local prev_line p_ts p_drop p_if p_ed p_er p_inv p_sr
-      prev_line=$(metrics_read_last)
+      prev_line=$(_cock_conntrack_storage read-last --db "$METRICS_DB" 2>/dev/null || true)
       if [[ -n "$prev_line" ]]; then
         IFS='|' read -r p_ts p_drop p_if p_ed p_er p_inv p_sr <<<"$prev_line"
         [[ "$p_ts" =~ ^[0-9]+$ ]] || p_ts=""
@@ -334,58 +251,60 @@ EOF
 
       if [[ "$do_insert" -eq 1 ]]; then
         metrics_collect_host_for_db
-        local hl hm hsw hti hto htt h6 hr hc htcq
-        hl=$(metrics_sql_real_or_null "${METRICS_DB_LOAD1:-}")
-        hm=$(metrics_sql_int_or_null "${METRICS_DB_MEM_AVAIL_KB:-}")
-        hsw=$(metrics_sql_int_or_null "${METRICS_DB_SWAP_USED_KB:-}")
-        hti=$(metrics_sql_int_or_null "${METRICS_DB_TCP_INUSE:-}")
-        hto=$(metrics_sql_int_or_null "${METRICS_DB_TCP_ORPHAN:-}")
-        htt=$(metrics_sql_int_or_null "${METRICS_DB_TCP_TW:-}")
-        h6=$(metrics_sql_int_or_null "${METRICS_DB_TCP6_INUSE:-}")
-        hr=$(metrics_sql_real_or_null "${METRICS_DB_SHAPER_RATE_MBIT:-}")
-        hc=$(metrics_sql_int_or_null "${METRICS_DB_SHAPER_CPU_PCT:-}")
-        htcq=$(metrics_sql_quoted_text_or_null "${METRICS_DB_TC_QDISC_ROOT:-}")
-
-        if [[ "$has_ct" -eq 1 ]]; then
-          local iv_sql sql_dd sql_di sql_de sql_derr sql_dinv sql_dsr
-          if [[ -n "$interval_sec" && "$interval_sec" -gt 0 ]]; then
-            iv_sql=$interval_sec
-            sql_dd=$(metrics_sql_uint_or_null "$dd")
-            sql_di=$(metrics_sql_uint_or_null "$di")
-            sql_de=$(metrics_sql_uint_or_null "$de")
-            sql_derr=$(metrics_sql_uint_or_null "$derr")
-            sql_dinv=$(metrics_sql_uint_or_null "$dinv")
-            sql_dsr=$(metrics_sql_uint_or_null "$dsr")
-          else
-            iv_sql="NULL"
-            sql_dd="NULL"
-            sql_di="NULL"
-            sql_de="NULL"
-            sql_derr="NULL"
-            sql_dinv="NULL"
-            sql_dsr="NULL"
-          fi
-          sqlite3 "$METRICS_DB" <<SQL
-BEGIN IMMEDIATE;
-INSERT INTO conntrack_samples (ts, fill_pct, fill_count, fill_max, "drop", insert_failed, early_drop, "error", invalid, search_restart, interval_sec, delta_drop, delta_insert_failed, delta_early_drop, delta_error, delta_invalid, delta_search_restart)
-VALUES (${now_ts}, ${fp_sql}, ${fc_sql}, ${fm_sql}, ${drop_sum}, ${if_sum}, ${ed_sum}, ${er_sum}, ${inv_sum}, ${sr_sum}, ${iv_sql}, ${sql_dd}, ${sql_di}, ${sql_de}, ${sql_derr}, ${sql_dinv}, ${sql_dsr});
-INSERT INTO host_samples (ts, load1, mem_avail_kb, swap_used_kb, tcp_inuse, tcp_orphan, tcp_tw, tcp6_inuse, shaper_rate_mbit, shaper_cpu_pct, tc_qdisc_root)
-VALUES (${now_ts}, ${hl}, ${hm}, ${hsw}, ${hti}, ${hto}, ${htt}, ${h6}, ${hr}, ${hc}, ${htcq});
-COMMIT;
-SQL
+        export COCK_MS_DB="$METRICS_DB"
+        export COCK_MS_NOW_TS="$now_ts"
+        export COCK_MS_HAS_CT="$has_ct"
+        export COCK_MS_RETENTION_DAYS="${METRICS_RETENTION_DAYS:-0}"
+        export COCK_MS_MAX_ROWS="${METRICS_MAX_ROWS:-0}"
+        export COCK_MS_RETENTION_NOW_TS="$(now_epoch)"
+        if [[ "$fp_sql" == "NULL" ]]; then
+          export COCK_MS_FILL_PCT=""
         else
-          sqlite3 "$METRICS_DB" <<SQL
-BEGIN IMMEDIATE;
-INSERT INTO conntrack_samples (ts, fill_pct, fill_count, fill_max, "drop", insert_failed, early_drop, "error", invalid, search_restart, interval_sec, delta_drop, delta_insert_failed, delta_early_drop, delta_error, delta_invalid, delta_search_restart)
-VALUES (${now_ts}, ${fp_sql}, ${fc_sql}, ${fm_sql}, 0, 0, 0, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-INSERT INTO host_samples (ts, load1, mem_avail_kb, swap_used_kb, tcp_inuse, tcp_orphan, tcp_tw, tcp6_inuse, shaper_rate_mbit, shaper_cpu_pct, tc_qdisc_root)
-VALUES (${now_ts}, ${hl}, ${hm}, ${hsw}, ${hti}, ${hto}, ${htt}, ${h6}, ${hr}, ${hc}, ${htcq});
-COMMIT;
-SQL
+          export COCK_MS_FILL_PCT="$fp_sql"
         fi
-        metrics_retention
-        metrics_trim_max_rows
-        metrics_host_trim_orphans
+        if [[ "$fc_sql" == "NULL" ]]; then
+          export COCK_MS_FILL_COUNT=""
+        else
+          export COCK_MS_FILL_COUNT="$fc_sql"
+        fi
+        if [[ "$fm_sql" == "NULL" ]]; then
+          export COCK_MS_FILL_MAX=""
+        else
+          export COCK_MS_FILL_MAX="$fm_sql"
+        fi
+        export COCK_MS_DROP="$drop_sum"
+        export COCK_MS_INSERT_FAILED="$if_sum"
+        export COCK_MS_EARLY_DROP="$ed_sum"
+        export COCK_MS_ERROR="$er_sum"
+        export COCK_MS_INVALID="$inv_sum"
+        export COCK_MS_SEARCH_RESTART="$sr_sum"
+        if [[ "$has_ct" -eq 1 ]]; then
+          export COCK_MS_INTERVAL_SEC="${interval_sec:-}"
+          export COCK_MS_DELTA_DROP="${dd:-}"
+          export COCK_MS_DELTA_INSERT_FAILED="${di:-}"
+          export COCK_MS_DELTA_EARLY_DROP="${de:-}"
+          export COCK_MS_DELTA_ERROR="${derr:-}"
+          export COCK_MS_DELTA_INVALID="${dinv:-}"
+          export COCK_MS_DELTA_SEARCH_RESTART="${dsr:-}"
+        else
+          unset COCK_MS_INTERVAL_SEC COCK_MS_DELTA_DROP COCK_MS_DELTA_INSERT_FAILED \
+            COCK_MS_DELTA_EARLY_DROP COCK_MS_DELTA_ERROR COCK_MS_DELTA_INVALID \
+            COCK_MS_DELTA_SEARCH_RESTART
+        fi
+        export COCK_MS_HOST_LOAD1="${METRICS_DB_LOAD1:-}"
+        export COCK_MS_HOST_MEM_AVAIL_KB="${METRICS_DB_MEM_AVAIL_KB:-}"
+        export COCK_MS_HOST_SWAP_USED_KB="${METRICS_DB_SWAP_USED_KB:-}"
+        export COCK_MS_HOST_TCP_INUSE="${METRICS_DB_TCP_INUSE:-}"
+        export COCK_MS_HOST_TCP_ORPHAN="${METRICS_DB_TCP_ORPHAN:-}"
+        export COCK_MS_HOST_TCP_TW="${METRICS_DB_TCP_TW:-}"
+        export COCK_MS_HOST_TCP6_INUSE="${METRICS_DB_TCP6_INUSE:-}"
+        export COCK_MS_HOST_SHAPER_RATE_MBIT="${METRICS_DB_SHAPER_RATE_MBIT:-}"
+        export COCK_MS_HOST_SHAPER_CPU_PCT="${METRICS_DB_SHAPER_CPU_PCT:-}"
+        export COCK_MS_HOST_TC_QDISC_ROOT="${METRICS_DB_TC_QDISC_ROOT:-}"
+        _cock_conntrack_storage write-from-env --db "$METRICS_DB" || {
+          echo "check-conntrack: metrics DB write failed" >&2
+          exit 1
+        }
       fi
     fi
   fi
