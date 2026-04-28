@@ -6,7 +6,7 @@ import ipaddress
 import re
 import time
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta, timezone, tzinfo
+from datetime import date, datetime, timedelta, timezone, tzinfo
 from datetime import time as dt_time
 from pathlib import Path
 
@@ -14,6 +14,8 @@ try:
     from zoneinfo import ZoneInfo  # type: ignore
 except Exception:  # pragma: no cover - python < 3.9 fallback
     ZoneInfo = None  # type: ignore[misc,assignment]
+
+UTC = timezone.utc
 
 
 def load_tz(tz_name: str) -> tzinfo:

@@ -7,7 +7,9 @@ import html
 import json
 import os
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+
+UTC = timezone.utc
 
 
 def _iso_from_epoch(ts: int) -> str:

@@ -5,9 +5,13 @@ import socket
 import subprocess
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
+
+try:
+    from zoneinfo import ZoneInfo  # type: ignore
+except Exception:  # pragma: no cover - python < 3.9 fallback
+    ZoneInfo = None  # type: ignore[misc,assignment]
 
 from cock_monitor.env import parse_env_file
 
@@ -149,7 +153,11 @@ def build_status_report(env_file: Path) -> str:
     raw_env = parse_env_file(env_file)
     cfg = StatusConfig.from_env_map(raw_env)
     host = socket.getfqdn() or socket.gethostname() or "unknown"
-    now_msk = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%Y-%m-%d %H:%M:%S MSK")
+    if ZoneInfo is not None:
+        msk_tz = ZoneInfo("Europe/Moscow")
+    else:
+        msk_tz = timezone(timedelta(hours=3), name="MSK")
+    now_msk = datetime.now(msk_tz).strftime("%Y-%m-%d %H:%M:%S MSK")
 
     lines: list[str] = [f"time: {now_msk}", f"host: {host}", "", "--- Host snapshot ---"]
 

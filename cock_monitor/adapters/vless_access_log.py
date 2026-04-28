@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -12,6 +12,8 @@ from cock_monitor.domain.vless_traffic import (
     daily_window_utc,
     load_tz,
 )
+
+UTC = timezone.utc
 
 
 @dataclass(frozen=True)

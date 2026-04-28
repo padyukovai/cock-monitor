@@ -7,7 +7,7 @@ import sqlite3
 import sys
 import tempfile
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -35,6 +35,8 @@ from cock_monitor.storage.vless_repository import (
     transaction,
     upsert_snapshot,
 )
+
+UTC = timezone.utc
 
 
 class VlessReportError(Exception):
