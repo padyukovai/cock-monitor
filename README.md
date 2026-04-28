@@ -6,6 +6,29 @@
 
 ## Быстрая установка (Ubuntu / Debian)
 
+### One-shot инсталлятор (рекомендуется для первого запуска)
+
+Из корня клонированного репозитория:
+
+```bash
+sudo bash install/install-ubuntu-minimal.sh
+```
+
+Что делает скрипт:
+
+- интерактивно спрашивает `TELEGRAM_BOT_TOKEN` и `TELEGRAM_CHAT_ID` (с подсказками);
+- устанавливает минимальные зависимости через `apt` (включая `conntrack` и `python3-matplotlib`);
+- создаёт `.venv` в текущем клоне и ставит проект + `chart` extras;
+- создаёт `/etc/cock-monitor.env` (права `600`) и `/var/lib/cock-monitor` (права `700`);
+- устанавливает и включает базовые таймеры:
+  - `cock-monitor.timer`
+  - `cock-monitor-telegram-bot.timer`
+  - `cock-monitor-daily.timer`
+
+Скрипт рассчитан на запуск из текущего клона (без копирования в `/opt/cock-monitor`): для systemd создаются override-конфиги с `WorkingDirectory` на текущий путь репозитория и запуском через `.venv/bin/python`.
+
+### Ручная установка (альтернатива)
+
 1. Скопируйте репозиторий на сервер, например в `/opt/cock-monitor`:
 
    ```bash
