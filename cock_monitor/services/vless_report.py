@@ -7,10 +7,7 @@ import sys
 from pathlib import Path
 from typing import Literal
 
-from cock_monitor.services.vless_report_use_case import (
-    VlessReportError,
-    run_vless_report_use_case,
-)
+from cock_monitor.services.vless_report_use_case import VlessReportError, run_vless_report_use_case
 
 
 def run_vless_report(
@@ -33,6 +30,16 @@ def run_since_last_sent_with_telegram(env_file: Path) -> None:
     run_vless_report(
         env_file,
         mode="since-last-sent",
+        send_telegram=True,
+        dry_run=False,
+    )
+
+
+def run_daily_with_telegram(env_file: Path) -> None:
+    """/vless_delta default endpoint: daily delta in configured report TZ."""
+    run_vless_report(
+        env_file,
+        mode="daily",
         send_telegram=True,
         dry_run=False,
     )

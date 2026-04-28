@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from cock_monitor.services.daily_chart import run_daily_chart
-from cock_monitor.services.vless_report import VlessReportError, run_since_last_sent_with_telegram
+from cock_monitor.services.vless_report import (
+    VlessReportError,
+    run_daily_with_telegram,
+    run_since_last_sent_with_telegram,
+)
 from mtproxy_module.charts import generate_mtproxy_chart
 from mtproxy_module.config import MtproxyConfig
 from mtproxy_module.reports import build_period_caption, current_status_text
@@ -20,6 +24,7 @@ from telegram_bot.status_provider import StatusProvider, truncate_for_telegram
 from telegram_bot.telegram_client import TelegramClient
 
 _BOT_CMD_TIMEOUT_SEC = 120.0
+_VLESS_DELTA_SINCE_LAST_FLAGS = {"--since-last-sent", "--since-last"}
 
 BASE_BOT_COMMANDS: tuple[tuple[str, str], ...] = (
     ("status", "Full conntrack status"),
@@ -80,6 +85,9 @@ def _help_text(mtproxy_enabled: bool) -> str:
     for name, desc in BASE_BOT_COMMANDS:
         if name == "chart":
             lines.append(f"/{name} — {desc} (needs matplotlib)")
+            continue
+        if name == "vless_delta":
+            lines.append(f"/{name} — {desc} (default: today; flag: --since-last-sent)")
             continue
         lines.append(f"/{name} — {desc}")
     lines.append("")
@@ -268,9 +276,27 @@ def handle_update(
         if env_file is None:
             client.send_message(str(chat_id), "/vless_delta is not configured (env file missing).")
             return
+        parts = text.split()
+        if len(parts) > 2:
+            client.send_message(
+                str(chat_id),
+                "Usage: /vless_delta [--since-last-sent]",
+            )
+            return
+        mode_flag = parts[1].strip().lower() if len(parts) == 2 else ""
+        since_last_mode = bool(mode_flag) and mode_flag in _VLESS_DELTA_SINCE_LAST_FLAGS
+        if mode_flag and not since_last_mode:
+            client.send_message(
+                str(chat_id),
+                "Unknown flag for /vless_delta. Usage: /vless_delta [--since-last-sent]",
+            )
+            return
 
         def _vless() -> None:
-            run_since_last_sent_with_telegram(env_file)
+            if since_last_mode:
+                run_since_last_sent_with_telegram(env_file)
+                return
+            run_daily_with_telegram(env_file)
 
         _run_command_with_timeout(
             client,
