@@ -350,11 +350,8 @@ def build_report(
         share = (delta * 100.0 / total_delta) if total_delta > 0 else 0.0
         ip_suffix = ""
         if ip_counts is not None:
-            n4, n6 = ip_counts.get(email, (0, 0))
-            ip_suffix = (
-                f" | <b>IP4</b> <code>{n4}</code> <b>IP6</b> <code>{n6}</code> "
-                f"<b>IPΣ</b> <code>{n4 + n6}</code>"
-            )
+            n4, _n6 = ip_counts.get(email, (0, 0))
+            ip_suffix = f" | <b>IP4</b> <code>{n4}</code>"
         lines.append(
             f"{rank}) <code>{esc(email)}</code> — <b>{fmt_bytes(delta)}</b> "
             f"(<code>{share:.1f}%</code>){ip_suffix}"
@@ -363,25 +360,21 @@ def build_report(
         lines.append("No positive usage detected for this day.")
 
     if ip_counts is not None and ip_top_k > 0:
-        ip_candidates: list[tuple[str, int, int, int, int]] = []
+        ip_candidates: list[tuple[str, int, int]] = []
         for email, (n4, n6) in ip_counts.items():
-            sigma = n4 + n6
-            if sigma <= 0:
+            if n4 <= 0:
                 continue
-            ip_candidates.append(
-                (email, sigma, n4, n6, int(delta_lookup.get(email, 0)))
-            )
-        ip_candidates.sort(key=lambda x: (-x[1], -x[4]))
+            ip_candidates.append((email, n4, int(delta_lookup.get(email, 0))))
+        ip_candidates.sort(key=lambda x: (-x[1], -x[2]))
         top_ip = ip_candidates[: max(1, ip_top_k)]
         if top_ip:
             lines.append("")
             lines.append(
-                f"<b>Top {max(1, ip_top_k)} by unique IP (IPv4+IPv6)</b>:"
+                f"<b>Top {max(1, ip_top_k)} by unique IPv4</b>:"
             )
-            for i, (email, sigma, n4, n6, dlt) in enumerate(top_ip, start=1):
+            for i, (email, n4, dlt) in enumerate(top_ip, start=1):
                 lines.append(
-                    f"{i}) <code>{esc(email)}</code> — <b>IPΣ</b> <code>{sigma}</code> "
-                    f"(<b>IP4</b> <code>{n4}</code> <b>IP6</b> <code>{n6}</code>) "
+                    f"{i}) <code>{esc(email)}</code> — <b>IP4</b> <code>{n4}</code> "
                     f"| <b>traffic Δ</b> <code>{fmt_bytes(dlt)}</code>"
                 )
         if ip_truncated:
