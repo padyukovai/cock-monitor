@@ -1,0 +1,17 @@
+---
+description: Run Python commands through project virtualenv
+alwaysApply: true
+---
+
+# Python Commands Via Virtualenv
+
+- Always run Python-related commands using the project virtual environment at `.venv`.
+- Use `.venv/bin/python` for Python execution instead of system `python` or `python3`.
+- Use `.venv/bin/pip` for package installation instead of global `pip`.
+- Run tests as `.venv/bin/python -m pytest ...` (or `.venv/bin/pytest ...` if needed).
+- For tools (formatters/linters), prefer `.venv/bin/<tool>` or `.venv/bin/python -m <tool>`.
+
+Examples:
+- `.venv/bin/python -m pytest`
+- `.venv/bin/python -m ruff check .`
+- `.venv/bin/python script.py`

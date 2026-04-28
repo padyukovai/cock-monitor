@@ -29,6 +29,9 @@ def test_poll_once_stops_by_max_updates(
         def __init__(self, _token: str) -> None:
             pass
 
+        def set_my_commands(self, _commands: list[tuple[str, str]]) -> None:
+            pass
+
         def get_updates(self, _offset: int, timeout: int = 0):  # noqa: ARG002
             if updates:
                 batch, updates[:] = updates[:5], updates[5:]
@@ -59,6 +62,9 @@ def test_poll_once_stops_by_max_seconds(
         def __init__(self, _token: str) -> None:
             pass
 
+        def set_my_commands(self, _commands: list[tuple[str, str]]) -> None:
+            pass
+
         def get_updates(self, _offset: int, timeout: int = 0):  # noqa: ARG002
             return list(updates)
 
@@ -73,3 +79,30 @@ def test_poll_once_stops_by_max_seconds(
 
     assert seen == [1, 2]
     assert written_offsets[-1] == 3
+
+
+def test_poll_once_sets_menu_commands_with_mtproxy_disabled(
+    tmp_path: Path, monkeypatch
+) -> None:
+    captured: list[list[tuple[str, str]]] = []
+
+    class _Client:
+        def __init__(self, _token: str) -> None:
+            pass
+
+        def set_my_commands(self, commands: list[tuple[str, str]]) -> None:
+            captured.append(commands)
+
+        def get_updates(self, _offset: int, timeout: int = 0):  # noqa: ARG002
+            return []
+
+    monkeypatch.setattr("telegram_bot.poll_once.TelegramClient", _Client)
+    monkeypatch.setattr("telegram_bot.poll_once.read_offset", lambda _p: 1)
+    monkeypatch.setattr("telegram_bot.poll_once.PythonStatusProvider", lambda **_k: object())
+
+    poll_once(_cfg(tmp_path, max_updates=3, max_seconds=999))
+
+    assert captured
+    assert ("status", "Full conntrack status") in captured[0]
+    assert ("help", "Show command help") in captured[0]
+    assert not any(name.startswith("mt_") for name, _ in captured[0])

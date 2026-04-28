@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import urllib.parse
 import urllib.error
 import urllib.request
 
@@ -99,3 +100,26 @@ def test_send_message_retry_exhausted_transient(monkeypatch: pytest.MonkeyPatch)
     assert "HTTP 503" in result.reason
     assert result.attempts == 3
     assert calls["n"] == 3
+
+
+def test_set_my_commands_posts_commands_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TelegramClient("token")
+    captured: dict[str, object] = {}
+
+    def _fake_urlopen(req: object, timeout: int = 0) -> _FakeResponse:
+        captured["url"] = getattr(req, "full_url", "")
+        captured["data"] = getattr(req, "data", b"")
+        captured["timeout"] = timeout
+        return _FakeResponse({"ok": True, "result": True})
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+
+    client.set_my_commands([("status", "Full conntrack status"), ("help", "Show command help")])
+
+    assert str(captured["url"]).endswith("/setMyCommands")
+    body = str(captured["data"], "utf-8")
+    params = urllib.parse.parse_qs(body)
+    commands_json = params["commands"][0]
+    commands = json.loads(commands_json)
+    assert commands[0]["command"] == "status"
+    assert commands[1]["description"] == "Show command help"

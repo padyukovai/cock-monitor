@@ -21,6 +21,19 @@ from telegram_bot.telegram_client import TelegramClient
 
 _BOT_CMD_TIMEOUT_SEC = 120.0
 
+BASE_BOT_COMMANDS: tuple[tuple[str, str], ...] = (
+    ("status", "Full conntrack status"),
+    ("chart", "PNG chart for last 24h"),
+    ("vless_delta", "VLESS usage delta report"),
+    ("help", "Show command help"),
+)
+
+MTPROXY_BOT_COMMANDS: tuple[tuple[str, str], ...] = (
+    ("mt_status", "MTProxy live status snapshot"),
+    ("mt_today", "MTProxy report + chart for last 24h"),
+    ("mt_threshold", "Update MTProxy thresholds"),
+)
+
 
 def _send_cmd_failure(client: TelegramClient, chat_id: str, cmd: str, message: str) -> None:
     client.send_message(chat_id, f"{cmd} failed:\n{message}"[:2000])
@@ -55,25 +68,29 @@ def _command_token(text: str) -> str | None:
     return first.lower()
 
 
-BASE_HELP_TEXT = (
-    "cock-monitor bot commands:\n"
-    "/status — full conntrack status\n"
-    "/chart — PNG for last 24h from metrics DB (needs matplotlib)\n"
-    "/vless_delta — VLESS usage delta since last sent report\n\n"
-    "Alerts still come from the scheduled check."
-)
+def bot_commands(*, mtproxy_enabled: bool) -> list[tuple[str, str]]:
+    commands = list(BASE_BOT_COMMANDS)
+    if mtproxy_enabled:
+        commands.extend(MTPROXY_BOT_COMMANDS)
+    return commands
 
 
 def _help_text(mtproxy_enabled: bool) -> str:
-    if not mtproxy_enabled:
-        return BASE_HELP_TEXT
-    return (
-        BASE_HELP_TEXT
-        + "\n\nMTProxy module commands:\n"
-        "/mt_status — MTProxy live status snapshot\n"
-        "/mt_today — MTProxy report + chart for last 24h\n"
-        "/mt_threshold <warning|critical> <value> — update MTProxy thresholds"
-    )
+    lines = ["cock-monitor bot commands:"]
+    for name, desc in BASE_BOT_COMMANDS:
+        if name == "chart":
+            lines.append(f"/{name} — {desc} (needs matplotlib)")
+            continue
+        lines.append(f"/{name} — {desc}")
+    lines.append("")
+    lines.append("Alerts still come from the scheduled check.")
+    if mtproxy_enabled:
+        lines.append("")
+        lines.append("MTProxy module commands:")
+        lines.append("/mt_status — MTProxy live status snapshot")
+        lines.append("/mt_today — MTProxy report + chart for last 24h")
+        lines.append("/mt_threshold <warning|critical> <value> — update MTProxy thresholds")
+    return "\n".join(lines)
 
 
 def handle_update(

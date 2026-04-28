@@ -113,6 +113,22 @@ class TelegramClient:
             return DeliveryResult(success=False, reason=reason, attempts=used_attempts)
         return DeliveryResult(success=True, reason="", attempts=used_attempts)
 
+    def set_my_commands(self, commands: list[tuple[str, str]]) -> None:
+        url = self._base + "setMyCommands"
+        payload = {
+            "commands": [{"command": command, "description": description} for command, description in commands]
+        }
+        data = urllib.parse.urlencode({"commands": json.dumps(payload["commands"])}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, method="POST")
+        try:
+            body, _ = _retry_with_backoff(
+                lambda: self._request_json(req, timeout=60, operation="setMyCommands")
+            )
+        except TelegramRequestError as e:
+            raise RuntimeError(str(e)) from e
+        if not body.get("ok"):
+            raise RuntimeError(f"setMyCommands API error: {body!r}")
+
     def send_photo(
         self,
         chat_id: str,

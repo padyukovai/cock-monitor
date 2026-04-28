@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 
 from telegram_bot.config import BotConfig
-from telegram_bot.handlers import handle_update
+from telegram_bot.handlers import bot_commands, handle_update
 from telegram_bot.offset_store import read_offset, write_offset
 from telegram_bot.status_provider import PythonStatusProvider
 from telegram_bot.telegram_client import TelegramClient
@@ -11,6 +11,11 @@ from telegram_bot.telegram_client import TelegramClient
 
 def poll_once(cfg: BotConfig) -> None:
     client = TelegramClient(cfg.bot_token)
+    try:
+        client.set_my_commands(bot_commands(mtproxy_enabled=bool(cfg.mtproxy and cfg.mtproxy.enabled)))
+    except RuntimeError:
+        # Command menu setup failure should not block command polling.
+        pass
     store_path = cfg.offset_file
     next_off = read_offset(store_path)
     provider = PythonStatusProvider(
