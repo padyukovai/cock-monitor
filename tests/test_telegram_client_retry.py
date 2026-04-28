@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import io
 import json
-import urllib.parse
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import pytest

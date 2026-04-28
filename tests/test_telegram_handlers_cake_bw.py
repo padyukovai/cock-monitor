@@ -108,9 +108,13 @@ def test_cake_bw_force_applies_global_tc_limit(tmp_path: Path, monkeypatch) -> N
     seen: list[tuple[str, int]] = []
 
     monkeypatch.setattr("telegram_bot.handlers.run_with_timeout", lambda fn, _timeout: fn())
+    def _fake_apply_global_cake_limit(*, iface: str, rate_mbit: int) -> str:
+        seen.append((iface, rate_mbit))
+        return f"Applied global CAKE limit on {iface}: {rate_mbit}M"
+
     monkeypatch.setattr(
         "telegram_bot.handlers._apply_global_cake_limit",
-        lambda *, iface, rate_mbit: seen.append((iface, rate_mbit)) or f"Applied global CAKE limit on {iface}: {rate_mbit}M",
+        _fake_apply_global_cake_limit,
     )
 
     handle_update(

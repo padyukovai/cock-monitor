@@ -6,7 +6,7 @@ import ipaddress
 import re
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone, tzinfo
+from datetime import UTC, date, datetime, timedelta, timezone, tzinfo
 from datetime import time as dt_time
 from pathlib import Path
 
@@ -15,7 +15,7 @@ try:
 except Exception:  # pragma: no cover - python < 3.9 fallback
     ZoneInfo = None  # type: ignore[misc,assignment]
 
-UTC = timezone.utc
+UTC = UTC
 
 
 def load_tz(tz_name: str) -> tzinfo:
@@ -361,7 +361,7 @@ def build_report(
 
     if ip_counts is not None and ip_top_k > 0:
         ip_candidates: list[tuple[str, int, int]] = []
-        for email, (n4, n6) in ip_counts.items():
+        for email, (n4, _n6) in ip_counts.items():
             if n4 <= 0:
                 continue
             ip_candidates.append((email, n4, int(delta_lookup.get(email, 0))))

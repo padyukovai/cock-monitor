@@ -50,7 +50,7 @@ def generate_vless_top_chart(
 
     max_v = max(values_gb) if values_gb else 0.0
     offset = max_v * 0.01 if max_v > 0 else 0.02
-    for bar, (_, delta_bytes) in zip(bars, rows):
+    for bar, (_, delta_bytes) in zip(bars, rows, strict=True):
         x = bar.get_width()
         y = bar.get_y() + bar.get_height() / 2
         ax.text(

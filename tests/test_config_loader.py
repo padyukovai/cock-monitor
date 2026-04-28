@@ -47,4 +47,8 @@ def test_load_config_validation_errors(tmp_path: Path) -> None:
     loaded = load_config(env_path)
     assert loaded.validation.ok is False
     assert any("WARN_PERCENT must be lower than CRIT_PERCENT" in e for e in loaded.validation.errors)
-    assert any("MTPROXY_ENABLE=1 requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID" in e for e in loaded.validation.errors)
+    assert any(
+        "MTPROXY_ENABLE=1 requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID"
+        in e
+        for e in loaded.validation.errors
+    )
