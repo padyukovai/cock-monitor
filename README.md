@@ -86,6 +86,7 @@ sudo /opt/cock-monitor/bin/cock-status.sh /etc/cock-monitor.env
 
 - **`/chart`** строит PNG за последние 24 часа из `METRICS_DB` тем же скриптом, что и ежедневный таймер; на сервере должен быть установлен **matplotlib**.
 - **`/vless_delta`** запускает `python -m cock_monitor vless-report --mode since-last-sent --send-telegram` и отправляет отчёт по VLESS-дельте с момента **предыдущего `/vless_delta` или другого запуска в том же режиме**.
+- **`/cake_bw <mbit>`** обновляет `SHAPER_MAX_RATE_MBIT` в `.env` (верхний лимит CAKE для `cock-cpu-shaper.sh`); новое значение применяется на ближайшем тике `cock-shaper.timer`.
 
 - Команды обрабатываются только из чата с вашим `TELEGRAM_CHAT_ID` (как и исходящие алерты).
 - Максимальная задержка ответа ≈ периоду таймера (по умолчанию **3 минуты** в [`systemd/cock-monitor-telegram-bot.timer`](systemd/cock-monitor-telegram-bot.timer)).
@@ -352,6 +353,7 @@ Potential heavy downloaders:
 
 - **Конфиг:** блок `SHAPER_*` в [`config.example.env`](config.example.env). Включение: **`SHAPER_ENABLE=1`**. Важно указать порты Xray/VPN: `SHAPER_VPN_PORTS=443,2053,37346`.
 - **Расписание:** [`systemd/cock-shaper.timer`](systemd/cock-shaper.timer) (по умолчанию запускается каждые 10 секунд).
+- **Режим выключения:** при `SHAPER_ENABLE=0` скрипт не меняет `tc` (без teardown). Рекомендуется выключать таймер отдельно: `sudo systemctl disable --now cock-shaper.timer`; если таймер останется включён, скрипт запишет warning в stderr/`SHAPER_STATUS_FILE`.
 - **Проверка:** для проверки в холостую: `sudo /opt/cock-monitor/bin/cock-cpu-shaper.sh --dry-run /etc/cock-monitor.env`
 
 ### Incident sampler (короткие постмортем-срезы)

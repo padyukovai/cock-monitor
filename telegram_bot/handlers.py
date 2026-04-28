@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import subprocess
 import tempfile
 import time
 from concurrent.futures import TimeoutError as FutureTimeout
@@ -30,6 +31,7 @@ BASE_BOT_COMMANDS: tuple[tuple[str, str], ...] = (
     ("status", "Full conntrack status"),
     ("chart", "PNG chart for last 24h"),
     ("vless_delta", "VLESS usage delta report"),
+    ("cake_bw", "Set CAKE bandwidth limit (Mbit)"),
     ("help", "Show command help"),
 )
 
@@ -89,6 +91,9 @@ def _help_text(mtproxy_enabled: bool) -> str:
         if name == "vless_delta":
             lines.append(f"/{name} — {desc} (default: today; flag: --since-last-sent)")
             continue
+        if name == "cake_bw":
+            lines.append(f"/{name} <mbit> [--force] — {desc}")
+            continue
         lines.append(f"/{name} — {desc}")
     lines.append("")
     lines.append("Alerts still come from the scheduled check.")
@@ -99,6 +104,83 @@ def _help_text(mtproxy_enabled: bool) -> str:
         lines.append("/mt_today — MTProxy report + chart for last 24h")
         lines.append("/mt_threshold <warning|critical> <value> — update MTProxy thresholds")
     return "\n".join(lines)
+
+
+def _env_get_int(raw_env: dict[str, str], key: str, default: int) -> int:
+    raw = raw_env.get(key, "")
+    try:
+        val = int(raw.strip())
+    except (ValueError, AttributeError):
+        return default
+    return val if val > 0 else default
+
+
+def _parse_env_map(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    text = path.read_text(encoding="utf-8", errors="replace")
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        out[key.strip()] = val.strip().strip("'\"")
+    return out
+
+
+def _upsert_env_key(path: Path, key: str, value: str) -> None:
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    replaced = False
+    for idx, raw in enumerate(lines):
+        stripped = raw.lstrip()
+        if stripped.startswith("#"):
+            continue
+        if "=" not in raw:
+            continue
+        line = stripped[7:].lstrip() if stripped.startswith("export ") else stripped
+        cur_key, _, _ = line.partition("=")
+        if cur_key.strip() != key:
+            continue
+        prefix = raw[: len(raw) - len(stripped)]
+        export_part = "export " if stripped.startswith("export ") else ""
+        lines[idx] = f"{prefix}{export_part}{key}={value}"
+        replaced = True
+        break
+    if not replaced:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.append(f"{key}={value}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _apply_global_cake_limit(*, iface: str, rate_mbit: int) -> str:
+    cmd = [
+        "tc",
+        "qdisc",
+        "replace",
+        "dev",
+        iface,
+        "root",
+        "cake",
+        "bandwidth",
+        f"{rate_mbit}mbit",
+        "flowblind",
+        "dual-dsthost",
+    ]
+    out = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if out.returncode != 0:
+        err = (out.stderr or out.stdout or "unknown tc error").strip()
+        raise RuntimeError(f"tc apply failed on {iface}: {err}")
+    return f"Applied global CAKE limit on {iface}: {rate_mbit}M"
 
 
 def handle_update(
@@ -304,6 +386,65 @@ def handle_update(
             "vless_delta",
             _vless,
             known_exceptions=(VlessReportError,),
+        )
+        return
+
+    if cmd == "/cake_bw":
+        if env_file is None:
+            client.send_message(str(chat_id), "/cake_bw is not configured (env file missing).")
+            return
+        parts = text.split()
+        if len(parts) not in (2, 3):
+            client.send_message(str(chat_id), "Usage: /cake_bw <mbit> [--force]")
+            return
+        force_mode = len(parts) == 3 and parts[2].strip().lower() == "--force"
+        if len(parts) == 3 and not force_mode:
+            client.send_message(str(chat_id), "Unknown flag. Usage: /cake_bw <mbit> [--force]")
+            return
+        try:
+            new_max_rate = int(parts[1])
+        except ValueError:
+            client.send_message(str(chat_id), "Invalid value. Must be integer Mbit.")
+            return
+        if new_max_rate <= 0:
+            client.send_message(str(chat_id), "Invalid value. Must be > 0.")
+            return
+        try:
+            raw_env = _parse_env_map(env_file)
+        except OSError as e:
+            _send_cmd_failure(client, str(chat_id), "cake_bw", str(e))
+            return
+        iface = raw_env.get("SHAPER_IFACE", "ens3").strip() or "ens3"
+        min_rate = _env_get_int(raw_env, "SHAPER_MIN_RATE_MBIT", 10)
+        if new_max_rate < min_rate:
+            client.send_message(
+                str(chat_id),
+                f"Rejected: {new_max_rate}M is below SHAPER_MIN_RATE_MBIT={min_rate}M.",
+            )
+            return
+        try:
+            _upsert_env_key(env_file, "SHAPER_MAX_RATE_MBIT", str(new_max_rate))
+        except OSError as e:
+            _send_cmd_failure(client, str(chat_id), "cake_bw", str(e))
+            return
+        if force_mode:
+            ok, msg = _run_command_with_timeout(
+                client,
+                str(chat_id),
+                "cake_bw --force",
+                lambda: _apply_global_cake_limit(iface=iface, rate_mbit=new_max_rate),
+            )
+            if not ok:
+                return
+            client.send_message(
+                str(chat_id),
+                f"Updated SHAPER_MAX_RATE_MBIT={new_max_rate}M in {env_file}.\n{msg}",
+            )
+            return
+        client.send_message(
+            str(chat_id),
+            f"Updated SHAPER_MAX_RATE_MBIT={new_max_rate}M in {env_file}. "
+            "cock-shaper timer will apply it on the next run.",
         )
         return
 

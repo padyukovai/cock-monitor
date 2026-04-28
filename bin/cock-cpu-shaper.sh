@@ -172,9 +172,16 @@ main() {
   ts=$(now_epoch)
 
   if [[ "$SHAPER_ENABLE" != "1" ]]; then
-    tc_teardown "$SHAPER_IFACE" || true
     shaper_state_write_kv "enabled=0\nts=${ts}\niface=${SHAPER_IFACE}"
-    echo "SHAPER_ENABLE=0 (teardown attempted)" >"${SHAPER_STATUS_FILE}.tmp" 2>/dev/null && mv "${SHAPER_STATUS_FILE}.tmp" "$SHAPER_STATUS_FILE" 2>/dev/null || true
+    local disabled_msg="cpu_shaper: disabled (SHAPER_ENABLE=0); tc unchanged on ${SHAPER_IFACE}"
+    echo "${disabled_msg} [warn: if cock-shaper.timer is active, disable it to avoid needless runs]" >&2
+    {
+      echo "ts=${ts}"
+      echo "iface=${SHAPER_IFACE}"
+      echo "enabled=0"
+      echo "tc_op=skipped_disabled"
+      echo "one_line=${disabled_msg}"
+    } >"${SHAPER_STATUS_FILE}.tmp" 2>/dev/null && mv "${SHAPER_STATUS_FILE}.tmp" "$SHAPER_STATUS_FILE" 2>/dev/null || true
     exit 0
   fi
 
@@ -208,6 +215,16 @@ main() {
   # Determine bounds
   local max_r=$SHAPER_MAX_RATE_MBIT
   local min_r=$SHAPER_MIN_RATE_MBIT
+  if [[ "$max_r" -lt "$min_r" ]]; then
+    max_r=$min_r
+  fi
+  if [[ "$cur_rate" -gt "$max_r" ]]; then
+    cur_rate=$max_r
+    next_rate=$cur_rate
+  elif [[ "$cur_rate" -lt "$min_r" ]]; then
+    cur_rate=$min_r
+    next_rate=$cur_rate
+  fi
 
   if [[ $cpu_pct -ge $SHAPER_CPU_TARGET_PCT ]]; then
     local decr=$(( cur_rate * SHAPER_STEP_DOWN_PCT / 100 ))
