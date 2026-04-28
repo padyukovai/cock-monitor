@@ -1,371 +1,125 @@
-# Деплой и обновление на сервере
+# Деплой на сервер (актуальный runbook)
 
-Инструкция для выката из локального клона репозитория на Linux-хост по **SSH** (пример: `root@cockvpn.org`). Целевой каталог на сервере: **`/opt/cock-monitor`**. Секреты лежат только в **`/etc/cock-monitor.env`** — в репозиторий не коммитятся.
+Короткая и рабочая инструкция для обновления уже установленного сервиса.
 
-Полное описание установки, Telegram и переменных окружения — в [README.md](README.md).
+## Значения по умолчанию
 
-## Что нужно локально
+- Сервер: `root@<your-server>`
+- Папка установки на сервере: `/opt/cock-monitor`
+- Боевой env-файл: `/etc/cock-monitor.env`
 
-- `ssh`, `git` и `rsync` (есть в macOS и большинстве Linux).
-- Доступ по ключу к пользователю с правами **root** на целевом хосте (или подставьте другого пользователя и пути с `sudo`).
-
-Задайте хост один раз в переменной (удобно копировать команды):
+Рекомендуется задать:
 
 ```bash
-export DEPLOY_HOST=root@cockvpn.org
+export DEPLOY_HOST=root@<your-server>
+export APP_DIR=/opt/cock-monitor
+export ENV_FILE=/etc/cock-monitor.env
 ```
 
-Путь к корню репозитория на вашей машине (при необходимости поправьте):
+## Стандартный деплой (git pull)
+
+1) Проверить, что целевая папка и репозиторий на месте:
 
 ```bash
-export REPO_ROOT="$HOME/MyProjects/cock-monitor"
+ssh "$DEPLOY_HOST" "cd $APP_DIR && git rev-parse --short HEAD && git status --short --branch"
 ```
 
-## Первичный деплой (с нуля)
-
-На сервере должны существовать каталоги и конфиг; проще всего выполнить с локальной машины:
-
-> Для уже работающей инсталляции (повторные деплои) предпочтителен git-путь из раздела **"Обновление (повторный выкат)"**. Ниже — bootstrap/fallback сценарий через копирование файлов.
+2) Обновить код:
 
 ```bash
-rsync -avz "$REPO_ROOT/bin/" "$DEPLOY_HOST:/tmp/cock-monitor-staging/"
-rsync -avz "$REPO_ROOT/lib/" "$DEPLOY_HOST:/tmp/cock-monitor-staging/"
-rsync -avz "$REPO_ROOT/telegram_bot/" "$DEPLOY_HOST:/tmp/cock-monitor-staging/telegram_bot/"
-rsync -avz "$REPO_ROOT/cock_monitor/" "$DEPLOY_HOST:/tmp/cock-monitor-staging/cock_monitor/"
-rsync -avz "$REPO_ROOT/mtproxy_module/" "$DEPLOY_HOST:/tmp/cock-monitor-staging/mtproxy_module/"
-rsync -avz "$REPO_ROOT/systemd/" "$DEPLOY_HOST:/tmp/cock-monitor-staging/"
-rsync -avz "$REPO_ROOT/config.example.env" "$REPO_ROOT/README.md" "$REPO_ROOT/requirements-chart.txt" "$DEPLOY_HOST:/tmp/cock-monitor-staging/"
-
-ssh "$DEPLOY_HOST" 'set -e
-mkdir -p /opt/cock-monitor/bin /opt/cock-monitor/lib /opt/cock-monitor/telegram_bot /opt/cock-monitor/cock_monitor /opt/cock-monitor/mtproxy_module /opt/cock-monitor/systemd
-install -m755 /tmp/cock-monitor-staging/check-conntrack.sh /opt/cock-monitor/bin/check-conntrack.sh
-install -m755 /tmp/cock-monitor-staging/cock-status.sh /opt/cock-monitor/bin/cock-status.sh
-install -m755 /tmp/cock-monitor-staging/cock-daily-chart.py /opt/cock-monitor/bin/cock-daily-chart.py
-install -m755 /tmp/cock-monitor-staging/cock-mtproxy-collect.py /opt/cock-monitor/bin/cock-mtproxy-collect.py
-install -m755 /tmp/cock-monitor-staging/cock-mtproxy-daily.py /opt/cock-monitor/bin/cock-mtproxy-daily.py
-install -m755 /tmp/cock-monitor-staging/cock-cpu-shaper.sh /opt/cock-monitor/bin/cock-cpu-shaper.sh
-install -m755 /tmp/cock-monitor-staging/incident-sampler.sh /opt/cock-monitor/bin/incident-sampler.sh
-install -m755 /tmp/cock-monitor-staging/incident-postmortem.py /opt/cock-monitor/bin/incident-postmortem.py
-install -m644 /tmp/cock-monitor-staging/conntrack-metrics.sh /opt/cock-monitor/lib/conntrack-metrics.sh
-install -m644 /tmp/cock-monitor-staging/incident-metrics.sh /opt/cock-monitor/lib/incident-metrics.sh
-cp -a /tmp/cock-monitor-staging/telegram_bot/. /opt/cock-monitor/telegram_bot/
-cp -a /tmp/cock-monitor-staging/cock_monitor/. /opt/cock-monitor/cock_monitor/
-cp -a /tmp/cock-monitor-staging/mtproxy_module/. /opt/cock-monitor/mtproxy_module/
-install -m644 /tmp/cock-monitor-staging/cock-monitor.service /opt/cock-monitor/systemd/cock-monitor.service
-install -m644 /tmp/cock-monitor-staging/cock-monitor.timer /opt/cock-monitor/systemd/cock-monitor.timer
-install -m644 /tmp/cock-monitor-staging/cock-monitor-telegram-bot.service /opt/cock-monitor/systemd/cock-monitor-telegram-bot.service
-install -m644 /tmp/cock-monitor-staging/cock-monitor-telegram-bot.timer /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer
-install -m644 /tmp/cock-monitor-staging/cock-monitor-daily.service /opt/cock-monitor/systemd/cock-monitor-daily.service
-install -m644 /tmp/cock-monitor-staging/cock-monitor-daily.timer /opt/cock-monitor/systemd/cock-monitor-daily.timer
-install -m644 /tmp/cock-monitor-staging/cock-mtproxy-monitor.service /opt/cock-monitor/systemd/cock-mtproxy-monitor.service
-install -m644 /tmp/cock-monitor-staging/cock-mtproxy-monitor.timer /opt/cock-monitor/systemd/cock-mtproxy-monitor.timer
-install -m644 /tmp/cock-monitor-staging/cock-mtproxy-daily.service /opt/cock-monitor/systemd/cock-mtproxy-daily.service
-install -m644 /tmp/cock-monitor-staging/cock-mtproxy-daily.timer /opt/cock-monitor/systemd/cock-mtproxy-daily.timer
-install -m644 /tmp/cock-monitor-staging/cock-shaper.service /opt/cock-monitor/systemd/cock-shaper.service
-install -m644 /tmp/cock-monitor-staging/cock-shaper.timer /opt/cock-monitor/systemd/cock-shaper.timer
-install -m644 /tmp/cock-monitor-staging/cock-monitor-incident-sampler.service /opt/cock-monitor/systemd/cock-monitor-incident-sampler.service
-install -m644 /tmp/cock-monitor-staging/cock-monitor-incident-sampler.timer /opt/cock-monitor/systemd/cock-monitor-incident-sampler.timer
-install -m644 /tmp/cock-monitor-staging/config.example.env /opt/cock-monitor/config.example.env
-install -m644 /tmp/cock-monitor-staging/README.md /opt/cock-monitor/README.md
-install -m644 /tmp/cock-monitor-staging/requirements-chart.txt /opt/cock-monitor/requirements-chart.txt
-chown -R root:root /opt/cock-monitor
-rm -rf /tmp/cock-monitor-staging
-mkdir -p /var/lib/cock-monitor && chmod 700 /var/lib/cock-monitor
-if [ ! -f /etc/cock-monitor.env ]; then
-  cp /opt/cock-monitor/config.example.env /etc/cock-monitor.env
-  chmod 600 /etc/cock-monitor.env
-  echo "Создан /etc/cock-monitor.env — заполните TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID"
-fi
-install -m644 /opt/cock-monitor/systemd/cock-monitor.service \
-  /opt/cock-monitor/systemd/cock-monitor.timer \
-  /opt/cock-monitor/systemd/cock-shaper.service \
-  /opt/cock-monitor/systemd/cock-shaper.timer \
-  /opt/cock-monitor/systemd/cock-monitor-incident-sampler.service \
-  /opt/cock-monitor/systemd/cock-monitor-incident-sampler.timer /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable --now cock-monitor.timer
-'
+ssh "$DEPLOY_HOST" "cd $APP_DIR && git pull --ff-only"
 ```
 
-После первого деплоя отредактируйте на сервере `/etc/cock-monitor.env`, проверьте preflight и при необходимости выполните разовый запуск:
+3) Понять, что именно приехало в этом деплое:
 
 ```bash
-ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && python3 -m cock_monitor preflight /etc/cock-monitor.env'
-ssh "$DEPLOY_HOST" 'systemctl start cock-monitor.service && systemctl status cock-monitor.service --no-pager'
+ssh "$DEPLOY_HOST" "cd $APP_DIR && git log -2 --oneline"
+ssh "$DEPLOY_HOST" "cd $APP_DIR && git show --name-only --oneline --pretty=medium HEAD"
 ```
 
-Чтобы включить опрос команд Telegram (`/status`), установите второй timer (нужен **python3** на сервере):
+## Проверка: нужны ли правки в конфиге или таймерах
+
+После `pull` обязательно определить, требует ли релиз действий вне `git`.
+
+### Быстрые правила
+
+- Если изменились только файлы в `cock_monitor/`, `telegram_bot/`, `bin/`, `lib/` — чаще всего ничего не нужно.
+- Если изменились файлы в `systemd/` — нужно переустановить unit-файлы и сделать `daemon-reload`.
+- Если изменились `config.example.env` или `config.minimal.env` — нужно сверить и при необходимости дописать новые переменные в `/etc/cock-monitor.env`.
+
+### Что проверить командами
 
 ```bash
-ssh "$DEPLOY_HOST" 'install -m644 /opt/cock-monitor/systemd/cock-monitor-telegram-bot.service \
-  /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now cock-monitor-telegram-bot.timer'
+ssh "$DEPLOY_HOST" "cd $APP_DIR && git diff --name-only HEAD~1..HEAD"
 ```
 
-Опциональный MTProxy-модуль (команды `/mt_status`, `/mt_today`, `/mt_threshold` и отдельные mtproxy-алерты):
+Опционально, если в релизе несколько коммитов:
 
 ```bash
-ssh "$DEPLOY_HOST" 'install -m644 /opt/cock-monitor/systemd/cock-mtproxy-monitor.service \
-  /opt/cock-monitor/systemd/cock-mtproxy-monitor.timer \
-  /opt/cock-monitor/systemd/cock-mtproxy-daily.service \
-  /opt/cock-monitor/systemd/cock-mtproxy-daily.timer /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now cock-mtproxy-monitor.timer cock-mtproxy-daily.timer'
+ssh "$DEPLOY_HOST" "cd $APP_DIR && git diff --name-only ORIG_HEAD..HEAD"
 ```
 
-Перед включением таймеров убедитесь, что в `/etc/cock-monitor.env` задано `MTPROXY_ENABLE=1`.
-
-Суточный график в Telegram (**`cock-monitor-daily.timer`**) нужен **matplotlib** (например `apt install python3-matplotlib` на Debian/Ubuntu) и накопленные строки в `METRICS_DB` от `python -m cock_monitor conntrack-check`:
+## Применение systemd-изменений (только если менялся `systemd/`)
 
 ```bash
-ssh "$DEPLOY_HOST" 'apt-get update && apt-get install -y python3-matplotlib sqlite3'
-ssh "$DEPLOY_HOST" 'install -m644 /opt/cock-monitor/systemd/cock-monitor-daily.service \
-  /opt/cock-monitor/systemd/cock-monitor-daily.timer /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now cock-monitor-daily.timer'
+ssh "$DEPLOY_HOST" "install -m644 \
+  $APP_DIR/systemd/cock-monitor.service \
+  $APP_DIR/systemd/cock-monitor.timer \
+  $APP_DIR/systemd/cock-monitor-telegram-bot.service \
+  $APP_DIR/systemd/cock-monitor-telegram-bot.timer \
+  $APP_DIR/systemd/cock-monitor-daily.service \
+  $APP_DIR/systemd/cock-monitor-daily.timer \
+  $APP_DIR/systemd/cock-mtproxy-monitor.service \
+  $APP_DIR/systemd/cock-mtproxy-monitor.timer \
+  $APP_DIR/systemd/cock-mtproxy-daily.service \
+  $APP_DIR/systemd/cock-mtproxy-daily.timer \
+  $APP_DIR/systemd/cock-shaper.service \
+  $APP_DIR/systemd/cock-shaper.timer \
+  $APP_DIR/systemd/cock-monitor-incident-sampler.service \
+  $APP_DIR/systemd/cock-monitor-incident-sampler.timer \
+  $APP_DIR/systemd/cock-vless-daily.service \
+  $APP_DIR/systemd/cock-vless-daily.timer \
+  /etc/systemd/system/ && systemctl daemon-reload"
 ```
 
-Умный CPU CAKE шейпер: в `/etc/cock-monitor.env` задайте **`SHAPER_ENABLE=1`**, укажите **`SHAPER_IFACE`** (например `ens3`) и порты **`SHAPER_VPN_PORTS`**. В системе должна быть поддержка **sch_cake**. Затем:
+## Smoke после деплоя
+
+Минимальный набор:
 
 ```bash
-ssh "$DEPLOY_HOST" 'systemctl enable --now cock-shaper.timer && systemctl list-timers cock-shaper.timer --no-pager'
-```
-
-Incident sampler: в `/etc/cock-monitor.env` включите `INCIDENT_SAMPLER_ENABLE=1`, затем:
-
-```bash
-ssh "$DEPLOY_HOST" 'systemctl enable --now cock-monitor-incident-sampler.timer && systemctl list-timers cock-monitor-incident-sampler.timer --no-pager'
-```
-
-## Обновление (повторный выкат)
-
-Основной путь — синхронизация через git на сервере. Копирование файлов через `rsync` оставлено как fallback для bootstrap/аварийных случаев.
-
-### Рекомендуемый путь: git-синхронизация на сервере (без копирования файлов)
-
-Этот путь предпочтителен для уже развернутого сервера, где `/opt/cock-monitor` — git-клон репозитория.
-
-1. На сервере проверьте чистоту рабочего дерева:
-
-   ```bash
-   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && git status --short --branch'
-   ```
-
-   Если есть локальные правки, выберите один из вариантов:
-   - сохранить временно: `git stash push -u -m "pre-deploy"`
-   - закоммитить в отдельную ветку
-   - осознанно отбросить: `git restore -- <file>`
-
-2. Обновите код:
-
-   ```bash
-   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && git fetch --all --prune && git pull --ff-only'
-   ```
-
-3. Обновите unit-файлы из репозитория в systemd и перезагрузите daemon:
-
-   ```bash
-   ssh "$DEPLOY_HOST" 'install -m644 /opt/cock-monitor/systemd/cock-monitor.service \
-     /opt/cock-monitor/systemd/cock-monitor.timer \
-     /opt/cock-monitor/systemd/cock-monitor-telegram-bot.service \
-     /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer \
-     /opt/cock-monitor/systemd/cock-monitor-daily.service \
-     /opt/cock-monitor/systemd/cock-monitor-daily.timer \
-     /opt/cock-monitor/systemd/cock-mtproxy-monitor.service \
-     /opt/cock-monitor/systemd/cock-mtproxy-monitor.timer \
-     /opt/cock-monitor/systemd/cock-mtproxy-daily.service \
-     /opt/cock-monitor/systemd/cock-mtproxy-daily.timer \
-     /opt/cock-monitor/systemd/cock-shaper.service \
-     /opt/cock-monitor/systemd/cock-shaper.timer \
-     /opt/cock-monitor/systemd/cock-monitor-incident-sampler.service \
-     /opt/cock-monitor/systemd/cock-monitor-incident-sampler.timer \
-     /etc/systemd/system/ && systemctl daemon-reload'
-   ```
-
-4. Выполните preflight/smoke и перезапустите таймеры:
-
-   ```bash
-   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && python3 -m cock_monitor preflight /etc/cock-monitor.env'
-   ssh "$DEPLOY_HOST" 'systemctl restart cock-monitor.timer && systemctl try-restart cock-monitor-telegram-bot.timer 2>/dev/null || true && systemctl try-restart cock-monitor-daily.timer 2>/dev/null || true && systemctl try-restart cock-monitor-incident-sampler.timer 2>/dev/null || true'
-   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && python3 -m cock_monitor conntrack-check --dry-run /etc/cock-monitor.env'
-   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && COCK_MONITOR_HOME=/opt/cock-monitor python3 -m telegram_bot --poll-once /etc/cock-monitor.env'
-   ```
-
-5. Если делали `git stash`, верните правки и отдельно проверьте результат:
-
-   ```bash
-   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && git stash pop || true'
-   ```
-
-### Fallback (legacy): только скрипты, lib, бот и документация (без смены `.service` / `.timer`)
-
-```bash
-mkdir -p /tmp/cock-monitor-staging-local/telegram_bot
-mkdir -p /tmp/cock-monitor-staging-local/cock_monitor
-mkdir -p /tmp/cock-monitor-staging-local/mtproxy_module
-cp -a "$REPO_ROOT/bin/check-conntrack.sh" "$REPO_ROOT/bin/cock-status.sh" "$REPO_ROOT/bin/cock-daily-chart.py" "$REPO_ROOT/bin/cock-mtproxy-collect.py" "$REPO_ROOT/bin/cock-mtproxy-daily.py" /tmp/cock-monitor-staging-local/
-cp -a "$REPO_ROOT/lib/conntrack-metrics.sh" /tmp/cock-monitor-staging-local/
-cp -a "$REPO_ROOT/telegram_bot/." /tmp/cock-monitor-staging-local/telegram_bot/
-cp -a "$REPO_ROOT/cock_monitor/." /tmp/cock-monitor-staging-local/cock_monitor/
-cp -a "$REPO_ROOT/mtproxy_module/." /tmp/cock-monitor-staging-local/mtproxy_module/
-cp -a "$REPO_ROOT/config.example.env" "$REPO_ROOT/README.md" "$REPO_ROOT/requirements-chart.txt" /tmp/cock-monitor-staging-local/
-rsync -avz /tmp/cock-monitor-staging-local/ "$DEPLOY_HOST:/tmp/cock-monitor-staging/"
-rm -rf /tmp/cock-monitor-staging-local
-
-ssh "$DEPLOY_HOST" 'set -e
-install -m755 /tmp/cock-monitor-staging/check-conntrack.sh /opt/cock-monitor/bin/check-conntrack.sh
-install -m755 /tmp/cock-monitor-staging/cock-status.sh /opt/cock-monitor/bin/cock-status.sh
-install -m755 /tmp/cock-monitor-staging/cock-daily-chart.py /opt/cock-monitor/bin/cock-daily-chart.py
-install -m755 /tmp/cock-monitor-staging/cock-mtproxy-collect.py /opt/cock-monitor/bin/cock-mtproxy-collect.py
-install -m755 /tmp/cock-monitor-staging/cock-mtproxy-daily.py /opt/cock-monitor/bin/cock-mtproxy-daily.py
-install -m644 /tmp/cock-monitor-staging/conntrack-metrics.sh /opt/cock-monitor/lib/conntrack-metrics.sh
-cp -a /tmp/cock-monitor-staging/telegram_bot/. /opt/cock-monitor/telegram_bot/
-cp -a /tmp/cock-monitor-staging/cock_monitor/. /opt/cock-monitor/cock_monitor/
-cp -a /tmp/cock-monitor-staging/mtproxy_module/. /opt/cock-monitor/mtproxy_module/
-install -m644 /tmp/cock-monitor-staging/config.example.env /opt/cock-monitor/config.example.env
-install -m644 /tmp/cock-monitor-staging/README.md /opt/cock-monitor/README.md
-install -m644 /tmp/cock-monitor-staging/requirements-chart.txt /opt/cock-monitor/requirements-chart.txt
-chown -R root:root /opt/cock-monitor
-rm -rf /tmp/cock-monitor-staging
-'
-```
-
-`config.example.env` на сервере — справочный шаблон; **боевой конфиг** `/etc/cock-monitor.env` этими командами не трогается. Если появились новые переменные в примере, вручную допишите их в `/etc/cock-monitor.env`.
-
-## Upgrade guide (breaking-aware)
-
-Для уже работающих инсталляций обновление до текущего контракта делайте в таком порядке:
-
-1. Снимите бэкап перед изменениями:
-   ```bash
-   ssh "$DEPLOY_HOST" 'cp -a /etc/cock-monitor.env /etc/cock-monitor.env.bak.$(date +%F-%H%M%S)'
-   ssh "$DEPLOY_HOST" 'test -f /var/lib/cock-monitor/metrics.db && cp -a /var/lib/cock-monitor/metrics.db /var/lib/cock-monitor/metrics.db.bak.$(date +%F-%H%M%S) || true'
-   ```
-2. Обновите файлы по инструкции выше (раздел "Изменились unit-файлы").
-3. Примените новый preflight:
-   ```bash
-   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && python3 -m cock_monitor preflight /etc/cock-monitor.env'
-   ```
-   Важно: preflight теперь валидирует связку `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` и проверяет зависимости по включённым фичам (`ping` для incident sampler, `tc`/`ip` для shaper).
-4. Перезагрузите systemd-юниты и проверьте ExecStart:
-   ```bash
-   ssh "$DEPLOY_HOST" 'systemctl daemon-reload && systemctl restart cock-monitor.timer && systemctl try-restart cock-monitor-incident-sampler.timer 2>/dev/null || true'
-   ssh "$DEPLOY_HOST" 'systemctl cat cock-monitor.service | sed -n "/ExecStart/p"'
-   ssh "$DEPLOY_HOST" 'systemctl cat cock-monitor-incident-sampler.service | sed -n "/ExecStart/p"'
-   ```
-   Ожидаемо: `python3 -m cock_monitor conntrack-check ...` и `python3 -m cock_monitor.services.incident_sampler ...`.
-5. Smoke после апдейта:
-   ```bash
-   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && python3 -m cock_monitor conntrack-check --dry-run /etc/cock-monitor.env'
-   ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && COCK_MONITOR_HOME=/opt/cock-monitor python3 -m telegram_bot --poll-once /etc/cock-monitor.env'
-   ```
-6. Быстрый rollback (если нужно): вернуть backup-файлы env/БД, затем `systemctl daemon-reload` и `systemctl restart` затронутых timer/service.
-
-## Runtime Python и зависимости (практика для безопасных апдейтов)
-
-Если после обновления появляются ошибки совместимости Python (например, код ожидает 3.11+, а системный `python3` старее), не меняйте системный интерпретатор глобально. Предпочтительно:
-
-1. Установить нужный Python рядом с системным (пример для Debian/Ubuntu: `python3.11`).
-2. Создать отдельный `venv` внутри `/opt/cock-monitor`.
-3. Установить в `venv` runtime-зависимости (`matplotlib` и т.д.).
-4. Перевести `ExecStart` python-юнитов на интерпретатор из `venv`.
-
-Пример:
-
-```bash
-ssh "$DEPLOY_HOST" 'cd /opt/cock-monitor && /usr/bin/python3.11 -m venv .venv311 && ./.venv311/bin/python -m pip install -U pip setuptools wheel matplotlib'
-ssh "$DEPLOY_HOST" 'sed -i "s#/usr/bin/python3#/opt/cock-monitor/.venv311/bin/python#g" /etc/systemd/system/cock-*.service && systemctl daemon-reload'
-```
-
-После переключения обязательно выполнить smoke по всем ключевым oneshot unit-файлам и посмотреть `journalctl` на ошибки.
-
-## Базы данных и breaking changes
-
-- Для major/refactoring-апдейтов допускается стратегия "чистого старта": старые БД/данные можно удалить после backup, если обнаружены несовместимости.
-- Минимум перед апдейтом: backup `/etc/cock-monitor.env` и файлов БД (`/var/lib/cock-monitor/*.db`).
-- Минимум после апдейта: `PRAGMA integrity_check;` и запуск прикладного smoke (`conntrack-check --dry-run`, `telegram_bot --poll-once`).
-- Если схема обновилась, запускайте встроенные миграции (`python3 -m cock_monitor conntrack-storage migrate --db <path>`).
-
-### Fallback (legacy): изменились unit-файлы
-
-```bash
-mkdir -p /tmp/cock-monitor-staging-local/telegram_bot
-mkdir -p /tmp/cock-monitor-staging-local/cock_monitor
-mkdir -p /tmp/cock-monitor-staging-local/mtproxy_module
-cp -a "$REPO_ROOT/bin/check-conntrack.sh" "$REPO_ROOT/bin/cock-status.sh" "$REPO_ROOT/bin/cock-daily-chart.py" "$REPO_ROOT/bin/cock-mtproxy-collect.py" "$REPO_ROOT/bin/cock-mtproxy-daily.py" "$REPO_ROOT/bin/cock-cpu-shaper.sh" "$REPO_ROOT/bin/incident-sampler.sh" "$REPO_ROOT/bin/incident-postmortem.py" /tmp/cock-monitor-staging-local/
-cp -a "$REPO_ROOT/lib/conntrack-metrics.sh" "$REPO_ROOT/lib/incident-metrics.sh" /tmp/cock-monitor-staging-local/
-cp -a "$REPO_ROOT/telegram_bot/." /tmp/cock-monitor-staging-local/telegram_bot/
-cp -a "$REPO_ROOT/cock_monitor/." /tmp/cock-monitor-staging-local/cock_monitor/
-cp -a "$REPO_ROOT/mtproxy_module/." /tmp/cock-monitor-staging-local/mtproxy_module/
-cp -a "$REPO_ROOT/systemd/cock-monitor.service" "$REPO_ROOT/systemd/cock-monitor.timer" \
-  "$REPO_ROOT/systemd/cock-monitor-telegram-bot.service" "$REPO_ROOT/systemd/cock-monitor-telegram-bot.timer" \
-  "$REPO_ROOT/systemd/cock-monitor-daily.service" "$REPO_ROOT/systemd/cock-monitor-daily.timer" \
-  "$REPO_ROOT/systemd/cock-mtproxy-monitor.service" "$REPO_ROOT/systemd/cock-mtproxy-monitor.timer" \
-  "$REPO_ROOT/systemd/cock-mtproxy-daily.service" "$REPO_ROOT/systemd/cock-mtproxy-daily.timer" \
-  "$REPO_ROOT/systemd/cock-shaper.service" "$REPO_ROOT/systemd/cock-shaper.timer" \
-  "$REPO_ROOT/systemd/cock-monitor-incident-sampler.service" "$REPO_ROOT/systemd/cock-monitor-incident-sampler.timer" \
-  /tmp/cock-monitor-staging-local/
-cp -a "$REPO_ROOT/config.example.env" "$REPO_ROOT/README.md" "$REPO_ROOT/requirements-chart.txt" /tmp/cock-monitor-staging-local/
-rsync -avz /tmp/cock-monitor-staging-local/ "$DEPLOY_HOST:/tmp/cock-monitor-staging/"
-rm -rf /tmp/cock-monitor-staging-local
-
-ssh "$DEPLOY_HOST" 'set -e
-install -m755 /tmp/cock-monitor-staging/check-conntrack.sh /opt/cock-monitor/bin/check-conntrack.sh
-install -m755 /tmp/cock-monitor-staging/cock-status.sh /opt/cock-monitor/bin/cock-status.sh
-install -m755 /tmp/cock-monitor-staging/cock-daily-chart.py /opt/cock-monitor/bin/cock-daily-chart.py
-install -m755 /tmp/cock-monitor-staging/cock-mtproxy-collect.py /opt/cock-monitor/bin/cock-mtproxy-collect.py
-install -m755 /tmp/cock-monitor-staging/cock-mtproxy-daily.py /opt/cock-monitor/bin/cock-mtproxy-daily.py
-install -m755 /tmp/cock-monitor-staging/cock-cpu-shaper.sh /opt/cock-monitor/bin/cock-cpu-shaper.sh
-install -m755 /tmp/cock-monitor-staging/incident-sampler.sh /opt/cock-monitor/bin/incident-sampler.sh
-install -m755 /tmp/cock-monitor-staging/incident-postmortem.py /opt/cock-monitor/bin/incident-postmortem.py
-install -m644 /tmp/cock-monitor-staging/conntrack-metrics.sh /opt/cock-monitor/lib/conntrack-metrics.sh
-install -m644 /tmp/cock-monitor-staging/incident-metrics.sh /opt/cock-monitor/lib/incident-metrics.sh
-cp -a /tmp/cock-monitor-staging/telegram_bot/. /opt/cock-monitor/telegram_bot/
-cp -a /tmp/cock-monitor-staging/cock_monitor/. /opt/cock-monitor/cock_monitor/
-cp -a /tmp/cock-monitor-staging/mtproxy_module/. /opt/cock-monitor/mtproxy_module/
-install -m644 /tmp/cock-monitor-staging/cock-monitor.service /opt/cock-monitor/systemd/cock-monitor.service
-install -m644 /tmp/cock-monitor-staging/cock-monitor.timer /opt/cock-monitor/systemd/cock-monitor.timer
-install -m644 /tmp/cock-monitor-staging/cock-monitor-telegram-bot.service /opt/cock-monitor/systemd/cock-monitor-telegram-bot.service
-install -m644 /tmp/cock-monitor-staging/cock-monitor-telegram-bot.timer /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer
-install -m644 /tmp/cock-monitor-staging/cock-monitor-daily.service /opt/cock-monitor/systemd/cock-monitor-daily.service
-install -m644 /tmp/cock-monitor-staging/cock-monitor-daily.timer /opt/cock-monitor/systemd/cock-monitor-daily.timer
-install -m644 /tmp/cock-monitor-staging/cock-mtproxy-monitor.service /opt/cock-monitor/systemd/cock-mtproxy-monitor.service
-install -m644 /tmp/cock-monitor-staging/cock-mtproxy-monitor.timer /opt/cock-monitor/systemd/cock-mtproxy-monitor.timer
-install -m644 /tmp/cock-monitor-staging/cock-mtproxy-daily.service /opt/cock-monitor/systemd/cock-mtproxy-daily.service
-install -m644 /tmp/cock-monitor-staging/cock-mtproxy-daily.timer /opt/cock-monitor/systemd/cock-mtproxy-daily.timer
-install -m644 /tmp/cock-monitor-staging/cock-shaper.service /opt/cock-monitor/systemd/cock-shaper.service
-install -m644 /tmp/cock-monitor-staging/cock-shaper.timer /opt/cock-monitor/systemd/cock-shaper.timer
-install -m644 /tmp/cock-monitor-staging/cock-monitor-incident-sampler.service /opt/cock-monitor/systemd/cock-monitor-incident-sampler.service
-install -m644 /tmp/cock-monitor-staging/cock-monitor-incident-sampler.timer /opt/cock-monitor/systemd/cock-monitor-incident-sampler.timer
-install -m644 /tmp/cock-monitor-staging/config.example.env /opt/cock-monitor/config.example.env
-install -m644 /tmp/cock-monitor-staging/README.md /opt/cock-monitor/README.md
-install -m644 /tmp/cock-monitor-staging/requirements-chart.txt /opt/cock-monitor/requirements-chart.txt
-chown -R root:root /opt/cock-monitor
-rm -rf /tmp/cock-monitor-staging
-install -m644 /opt/cock-monitor/systemd/cock-monitor.service \
-  /opt/cock-monitor/systemd/cock-monitor.timer \
-  /opt/cock-monitor/systemd/cock-monitor-telegram-bot.service \
-  /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer \
-  /opt/cock-monitor/systemd/cock-monitor-daily.service \
-  /opt/cock-monitor/systemd/cock-monitor-daily.timer \
-  /opt/cock-monitor/systemd/cock-mtproxy-monitor.service \
-  /opt/cock-monitor/systemd/cock-mtproxy-monitor.timer \
-  /opt/cock-monitor/systemd/cock-mtproxy-daily.service \
-  /opt/cock-monitor/systemd/cock-mtproxy-daily.timer \
-  /opt/cock-monitor/systemd/cock-shaper.service \
-  /opt/cock-monitor/systemd/cock-shaper.timer \
-  /opt/cock-monitor/systemd/cock-monitor-incident-sampler.service \
-  /opt/cock-monitor/systemd/cock-monitor-incident-sampler.timer /etc/systemd/system/
-systemctl daemon-reload
-systemctl restart cock-monitor.timer
-systemctl try-restart cock-monitor-telegram-bot.timer 2>/dev/null || true
-systemctl try-restart cock-monitor-daily.timer 2>/dev/null || true
-systemctl try-restart cock-monitor-incident-sampler.timer 2>/dev/null || true
-'
+ssh "$DEPLOY_HOST" "cd $APP_DIR && python3 -m cock_monitor preflight $ENV_FILE"
+ssh "$DEPLOY_HOST" "cd $APP_DIR && python3 -m cock_monitor conntrack-check --dry-run $ENV_FILE"
+ssh "$DEPLOY_HOST" "cd $APP_DIR && COCK_MONITOR_HOME=$APP_DIR python3 -m telegram_bot --poll-once $ENV_FILE"
 ```
 
 Проверка таймеров:
 
 ```bash
-ssh "$DEPLOY_HOST" 'systemctl list-timers cock-monitor.timer cock-monitor-telegram-bot.timer cock-monitor-daily.timer cock-monitor-incident-sampler.timer --no-pager'
+ssh "$DEPLOY_HOST" "systemctl list-timers --all | awk 'NR==1 || /cock|telegram|mtproxy/'"
 ```
+
+## Частые post-deploy действия
+
+- Обновились команды Telegram-бота: запусти `cock-monitor-telegram-bot.service`, чтобы меню применилось сразу:
+
+```bash
+ssh "$DEPLOY_HOST" "systemctl start cock-monitor-telegram-bot.service && systemctl status cock-monitor-telegram-bot.service --no-pager"
+```
+
+- Изменился только код без `systemd/` и env-контракта: обычно достаточно `git pull` + smoke.
+
+## Rollback (быстро)
+
+```bash
+ssh "$DEPLOY_HOST" "cd $APP_DIR && git reset --hard HEAD~1"
+ssh "$DEPLOY_HOST" "systemctl daemon-reload"
+ssh "$DEPLOY_HOST" "systemctl restart cock-monitor.timer"
+```
+
+Если откатили релиз с изменениями в env, верни резервную копию `/etc/cock-monitor.env`.
 
 ## Важно
 
-- **Не заливайте** локальный файл с секретами в репозиторий; на сервер секреты вносятся только в `/etc/cock-monitor.env`.
-- Скрипт рассчитан на **Linux** с доступом к `/proc/sys/net/netfilter/`; на другой ОС или без conntrack поведение см. README.
+- Секреты хранятся только в `/etc/cock-monitor.env`, не в репозитории.
+- Не делай деплой при грязном рабочем дереве на сервере, пока не понятно происхождение локальных правок.
+- Полные детали по установке и подсистемам смотри в `README.md`.
