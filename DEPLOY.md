@@ -83,14 +83,39 @@ ssh "$DEPLOY_HOST" "install -m644 \
   /etc/systemd/system/ && systemctl daemon-reload"
 ```
 
+## Проверка Python runtime перед smoke и запуском unit'ов
+
+Начиная с текущих релизов, части кода могут требовать Python 3.11+.
+Перед smoke-проверкой удобно определить, какой интерпретатор использовать на сервере.
+
+```bash
+export PYTHON_BIN="$(ssh "$DEPLOY_HOST" "set -e
+if python3 - <<'PY'
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 11) else 1)
+PY
+then
+  echo python3
+elif [ -x \"$APP_DIR/.venv311/bin/python\" ]; then
+  echo \"$APP_DIR/.venv311/bin/python\"
+else
+  echo 'ERROR: Python 3.11+ is required. Neither system python3>=3.11 nor $APP_DIR/.venv311/bin/python found.' >&2
+  exit 1
+fi")"
+
+echo "Using interpreter: $PYTHON_BIN"
+```
+
+Примечание: если выбран `.venv311`, для `systemd` unit-файлов нужно использовать тот же интерпретатор в `ExecStart`.
+
 ## Smoke после деплоя
 
 Минимальный набор:
 
 ```bash
-ssh "$DEPLOY_HOST" "cd $APP_DIR && python3 -m cock_monitor preflight $ENV_FILE"
-ssh "$DEPLOY_HOST" "cd $APP_DIR && python3 -m cock_monitor conntrack-check --dry-run $ENV_FILE"
-ssh "$DEPLOY_HOST" "cd $APP_DIR && COCK_MONITOR_HOME=$APP_DIR python3 -m telegram_bot --poll-once $ENV_FILE"
+ssh "$DEPLOY_HOST" "cd $APP_DIR && $PYTHON_BIN -m cock_monitor preflight $ENV_FILE"
+ssh "$DEPLOY_HOST" "cd $APP_DIR && $PYTHON_BIN -m cock_monitor conntrack-check --dry-run $ENV_FILE"
+ssh "$DEPLOY_HOST" "cd $APP_DIR && COCK_MONITOR_HOME=$APP_DIR $PYTHON_BIN -m telegram_bot --poll-once $ENV_FILE"
 ```
 
 Проверка таймеров:
@@ -108,6 +133,42 @@ ssh "$DEPLOY_HOST" "systemctl start cock-monitor-telegram-bot.service && systemc
 ```
 
 - Изменился только код без `systemd/` и env-контракта: обычно достаточно `git pull` + smoke.
+
+## Ops заметка: MTProxy падает из-за большого `pid_max`
+
+Симптомы:
+
+- клиенты жалуются, что MTProxy недоступен;
+- `mtproto.service` в рестартах;
+- в логах `mtproto-proxy`: `init_common_PID: Assertion '!(p & 0xffff0000)' failed`.
+
+Быстрая диагностика:
+
+```bash
+ssh "$DEPLOY_HOST" "systemctl --no-pager --full status mtproto.service | sed -n '1,40p'"
+ssh "$DEPLOY_HOST" "journalctl -u mtproto.service -n 80 --no-pager"
+ssh "$DEPLOY_HOST" "sysctl kernel.pid_max"
+```
+
+Причина: текущий бинарь `mtproto-proxy` не работает с PID > `65535`, а на части систем дефолт `kernel.pid_max` может быть существенно выше.
+
+Безопасный фикс:
+
+```bash
+ssh "$DEPLOY_HOST" "sysctl -w kernel.pid_max=65535"
+ssh "$DEPLOY_HOST" "printf '%s\n' 'kernel.pid_max = 65535' > /etc/sysctl.d/99-mtproxy-pid-max.conf"
+ssh "$DEPLOY_HOST" "sysctl --system"
+ssh "$DEPLOY_HOST" "systemctl restart mtproto.service"
+```
+
+Проверка после фикса:
+
+```bash
+ssh "$DEPLOY_HOST" "systemctl --no-pager --full status mtproto.service | sed -n '1,40p'"
+ssh "$DEPLOY_HOST" "ss -lntup | awk 'NR==1 || /:8443|mtproto/'"
+```
+
+Примечание: если `sysctl --system` печатает предупреждения по ключам из `/usr/lib/sysctl.d/50-default.conf` (`accept_source_route`/`promote_secondaries`), не редактируй файл в `/usr/lib`. Делай override в `/etc/sysctl.d/`.
 
 ## Rollback (быстро)
 
