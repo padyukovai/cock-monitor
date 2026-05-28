@@ -53,6 +53,7 @@ def apply_incident_defaults() -> None:
     os.environ.setdefault("INCIDENT_PING_COUNT", "2")
     os.environ.setdefault("INCIDENT_PING_TIMEOUT_SEC", "1")
     os.environ.setdefault("INCIDENT_PING_LOSS_WARN_PCT", "20")
+    os.environ.setdefault("INCIDENT_WARN_CONSECUTIVE", "1")
     os.environ.setdefault("INCIDENT_TCP_PROBE_LOCAL_TARGET", "127.0.0.1")
     os.environ.setdefault("INCIDENT_TCP_PROBE_EXTERNAL_TARGET", "")
     os.environ.setdefault("INCIDENT_TCP_PROBE_PORTS", "")
@@ -417,6 +418,9 @@ def state_load(path: Path) -> dict[str, str]:
         "incident_active": "0",
         "incident_start_ts": "0",
         "incident_peak_level": "OK",
+        "non_ok_streak": "0",
+        "non_ok_first_ts": "0",
+        "non_ok_peak_level": "OK",
     }
     if not path.is_file():
         return out
@@ -443,6 +447,9 @@ def state_save(path: Path, st: dict[str, str]) -> None:
         f"incident_active={st['incident_active']}\n"
         f"incident_start_ts={st['incident_start_ts']}\n"
         f"incident_peak_level={st['incident_peak_level']}\n"
+        f"non_ok_streak={st['non_ok_streak']}\n"
+        f"non_ok_first_ts={st['non_ok_first_ts']}\n"
+        f"non_ok_peak_level={st['non_ok_peak_level']}\n"
     )
     tmp = path.parent / f".incident-state.{os.getpid()}.tmp"
     tmp.write_text(text, encoding="utf-8")
@@ -500,16 +507,29 @@ def incident_track_and_postmortem(
     st: dict[str, str],
     log_dir: Path,
 ) -> None:
-    if old_level == "OK" and new_level != "OK":
-        st["incident_active"] = "1"
-        st["incident_start_ts"] = str(now_ts)
-        st["incident_peak_level"] = new_level
-    elif old_level != "OK" and new_level != "OK":
-        st["incident_active"] = "1"
-        if new_level == "CRIT":
-            st["incident_peak_level"] = "CRIT"
-        elif st.get("incident_peak_level") != "CRIT" and new_level == "WARN":
-            st["incident_peak_level"] = "WARN"
+    warn_consecutive = max(1, _get_int("INCIDENT_WARN_CONSECUTIVE", 1))
+
+    if new_level != "OK":
+        streak = int(st.get("non_ok_streak", "0") or "0") + 1
+        st["non_ok_streak"] = str(streak)
+        if streak == 1:
+            st["non_ok_first_ts"] = str(now_ts)
+            st["non_ok_peak_level"] = new_level
+        else:
+            if new_level == "CRIT":
+                st["non_ok_peak_level"] = "CRIT"
+            elif st.get("non_ok_peak_level") != "CRIT" and new_level == "WARN":
+                st["non_ok_peak_level"] = "WARN"
+
+        if st.get("incident_active") != "1" and streak >= warn_consecutive:
+            st["incident_active"] = "1"
+            st["incident_start_ts"] = st.get("non_ok_first_ts", str(now_ts))
+            st["incident_peak_level"] = st.get("non_ok_peak_level", new_level)
+        elif st.get("incident_active") == "1":
+            if new_level == "CRIT":
+                st["incident_peak_level"] = "CRIT"
+            elif st.get("incident_peak_level") != "CRIT" and new_level == "WARN":
+                st["incident_peak_level"] = "WARN"
     elif old_level != "OK" and new_level == "OK":
         if st.get("incident_active") == "1":
             if os.environ.get("INCIDENT_POSTMORTEM_ENABLE", "1") == "1":
@@ -545,6 +565,9 @@ def incident_track_and_postmortem(
             st["incident_active"] = "0"
             st["incident_start_ts"] = "0"
             st["incident_peak_level"] = "OK"
+        st["non_ok_streak"] = "0"
+        st["non_ok_first_ts"] = "0"
+        st["non_ok_peak_level"] = "OK"
 
 
 def maybe_alert(
@@ -557,6 +580,10 @@ def maybe_alert(
     if os.environ.get("INCIDENT_ALERT_ENABLE", "0") != "1":
         return
     last = st.get("last_level", "OK")
+    warn_consecutive = max(1, _get_int("INCIDENT_WARN_CONSECUTIVE", 1))
+    non_ok_streak = int(st.get("non_ok_streak", str(warn_consecutive)) or str(warn_consecutive))
+    if level != "OK" and non_ok_streak < warn_consecutive:
+        return
     last_alert_ts = int(st.get("last_alert_ts", "0") or "0")
     cooldown = _get_int("INCIDENT_ALERT_COOLDOWN_SEC", 300)
     changed = 1 if level != last else 0
