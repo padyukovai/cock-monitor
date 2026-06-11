@@ -28,11 +28,29 @@ class ErrorLogDelta:
     tail: str = ""
 
 
+def seek_log_to_end(state: LogTailState) -> None:
+    """Start tailing from EOF so capture deltas cover only the burst window."""
+    if not state.path.is_file():
+        return
+    try:
+        st = state.path.stat()
+        state.inode = st.st_ino
+        state.offset = st.st_size
+    except OSError:
+        pass
+
+
 @dataclass
 class BurstLogTracker:
     access: LogTailState | None = None
     error: LogTailState | None = None
     _error_tail_buf: list[str] = field(default_factory=list)
+
+    def seek_all_to_end(self) -> None:
+        if self.access is not None:
+            seek_log_to_end(self.access)
+        if self.error is not None:
+            seek_log_to_end(self.error)
 
     def _read_new_lines(self, state: LogTailState) -> list[str]:
         if not state.path.is_file():

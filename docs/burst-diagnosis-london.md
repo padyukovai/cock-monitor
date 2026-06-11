@@ -63,7 +63,7 @@ BURST_PROBE_PORT=443
 
 ```bash
 cd /opt/cock-monitor
-sudo .venv/bin/python -m cock_monitor burst-capture start --env-file /etc/cock-monitor.env --duration 60
+sudo .venv/bin/python -m cock_monitor burst-capture --env-file /etc/cock-monitor.env start --duration 60
 ```
 
 **На Mac (cockvpn):**
@@ -78,7 +78,7 @@ sudo .venv/bin/python -m cock_monitor burst-capture start --env-file /etc/cock-m
 **Снова на VPS:**
 
 ```bash
-sudo .venv/bin/python -m cock_monitor burst-capture stop --env-file /etc/cock-monitor.env
+sudo .venv/bin/python -m cock_monitor burst-capture --env-file /etc/cock-monitor.env stop
 # путь из вывода stop/status
 sudo .venv/bin/python -m cock_monitor burst-capture report /var/lib/cock-monitor/burst-YYYYMMDD-HHMMSS.jsonl
 # JSON:

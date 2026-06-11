@@ -402,8 +402,8 @@ Potential heavy downloaders:
 Для расследования **шквала** параллельных VLESS-подключений (когда одиночные probe ok, а parallel fail) — отдельный CLI с 1 Hz JSONL и отчётом с вердиктом (`handshake_stall`, `conntrack_pressure`, …):
 
 ```bash
-python -m cock_monitor burst-capture start --env-file /etc/cock-monitor.env --duration 60
-python -m cock_monitor burst-capture stop --env-file /etc/cock-monitor.env
+python -m cock_monitor burst-capture --env-file /etc/cock-monitor.env start --duration 60
+python -m cock_monitor burst-capture --env-file /etc/cock-monitor.env stop
 python -m cock_monitor burst-capture report /var/lib/cock-monitor/burst-YYYYMMDD-HHMMSS.jsonl
 ```
 

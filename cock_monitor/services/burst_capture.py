@@ -193,6 +193,7 @@ def run_capture_loop(log_path: Path, duration_sec: int) -> int:
         tracker.access = LogTailState(path=access_path)
     if error_path.is_file():
         tracker.error = LogTailState(path=error_path)
+    tracker.seek_all_to_end()
 
     stop = False
 
