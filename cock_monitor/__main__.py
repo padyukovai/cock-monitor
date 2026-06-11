@@ -41,6 +41,14 @@ def main(argv: list[str] | None = None) -> int:
         from cock_monitor.config_check_cli import run as config_check_run
 
         return config_check_run(a[1:])
+    if a[:1] == ["configure"]:
+        from cock_monitor.configure_cli import run as configure_run
+
+        return configure_run(a[1:])
+    if a[:1] == ["burst-capture"]:
+        from cock_monitor.burst_capture_cli import run as burst_capture_run
+
+        return burst_capture_run(a[1:])
     if a[:1] == ["preflight"]:
         a = a[1:]
     if a[:1] in (["help"], ["-h"], ["--help"]):

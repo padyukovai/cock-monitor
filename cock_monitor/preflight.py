@@ -113,6 +113,20 @@ def run_preflight(
                 lines.append(text)
                 ok = ok and step_ok
 
+        burst_access = env.get("BURST_ACCESS_LOG_PATH", "").strip()
+        if burst_access:
+            p = Path(burst_access).expanduser()
+            if not p.is_file():
+                lines.append(f"warn: BURST_ACCESS_LOG_PATH not a file: {p}")
+            elif not os.access(p, os.R_OK):
+                lines.append(f"warn: BURST_ACCESS_LOG_PATH not readable: {p}")
+            else:
+                lines.append(f"ok: BURST_ACCESS_LOG_PATH readable: {p}")
+            text, _ = _check_tool("ss", required=False)
+            lines.append(text)
+            text, _ = _check_tool("pgrep", required=False)
+            lines.append(text)
+
         if _to_bool(env.get("SHAPER_ENABLE")):
             for name in ("tc", "ip"):
                 text, step_ok = _check_tool(name, required=True)

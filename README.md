@@ -397,6 +397,18 @@ Potential heavy downloaders:
 - **Проверка вручную:** `cd /opt/cock-monitor && sudo INCIDENT_SAMPLER_ENABLE=1 python3 -m cock_monitor.services.incident_sampler /etc/cock-monitor.env`
 - **Post-mortem в Telegram:** при переходе **WARN/CRIT → OK** скрипт [`bin/incident-postmortem.py`](bin/incident-postmortem.py) читает JSONL за окно инцидента и отправляет краткий HTML-отчёт (нужны **python3** и `INCIDENT_POSTMORTEM_ENABLE=1`).
 
+### Burst capture (on-demand, 1 Hz)
+
+Для расследования **шквала** параллельных VLESS-подключений (когда одиночные probe ok, а parallel fail) — отдельный CLI с 1 Hz JSONL и отчётом с вердиктом (`handshake_stall`, `conntrack_pressure`, …):
+
+```bash
+python -m cock_monitor burst-capture start --env-file /etc/cock-monitor.env --duration 60
+python -m cock_monitor burst-capture stop --env-file /etc/cock-monitor.env
+python -m cock_monitor burst-capture report /var/lib/cock-monitor/burst-YYYYMMDD-HHMMSS.jsonl
+```
+
+Конфиг: блок `BURST_*` в [`config.example.env`](config.example.env). Полный протокол сравнения London vs USA: [`docs/burst-diagnosis-london.md`](docs/burst-diagnosis-london.md).
+
 ## Логи и диск
 
 Скрипт проверки пишет небольшой **state**-файл для cooldown и при включённых метриках — файл **`metrics.db`** (порядок десятков килобайт на типичном интервале; см. retention). При включённом опросе бота добавляется файл **offset** для `getUpdates` (`TELEGRAM_OFFSET_FILE`). Не включайте избыточное логирование cron в файлы без `logrotate`.
