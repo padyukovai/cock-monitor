@@ -75,16 +75,22 @@ def _command_token(text: str) -> str | None:
     return first.lower()
 
 
-def bot_commands(*, mtproxy_enabled: bool) -> list[tuple[str, str]]:
-    commands = list(BASE_BOT_COMMANDS)
+def bot_commands(*, mtproxy_enabled: bool, shaper_enabled: bool = False) -> list[tuple[str, str]]:
+    commands: list[tuple[str, str]] = []
+    for name, desc in BASE_BOT_COMMANDS:
+        if name == "cake_bw" and not shaper_enabled:
+            continue
+        commands.append((name, desc))
     if mtproxy_enabled:
         commands.extend(MTPROXY_BOT_COMMANDS)
     return commands
 
 
-def _help_text(mtproxy_enabled: bool) -> str:
+def _help_text(*, mtproxy_enabled: bool, shaper_enabled: bool = False) -> str:
     lines = ["cock-monitor bot commands:"]
     for name, desc in BASE_BOT_COMMANDS:
+        if name == "cake_bw" and not shaper_enabled:
+            continue
         if name == "chart":
             lines.append(f"/{name} — {desc} (needs matplotlib)")
             continue
@@ -191,6 +197,7 @@ def handle_update(
     status_provider: StatusProvider,
     env_file: Path | None = None,
     mtproxy_cfg: MtproxyConfig | None = None,
+    shaper_enabled: bool = False,
 ) -> None:
     msg = update.get("message")
     if not isinstance(msg, dict):
@@ -208,7 +215,13 @@ def handle_update(
     if cmd is None:
         return
     if cmd in ("/start", "/help"):
-        client.send_message(str(chat_id), _help_text(mtproxy_enabled=bool(mtproxy_cfg and mtproxy_cfg.enabled)))
+        client.send_message(
+            str(chat_id),
+            _help_text(
+                mtproxy_enabled=bool(mtproxy_cfg and mtproxy_cfg.enabled),
+                shaper_enabled=shaper_enabled,
+            ),
+        )
         return
 
     if cmd.startswith("/mt_"):
@@ -390,6 +403,9 @@ def handle_update(
         return
 
     if cmd == "/cake_bw":
+        if not shaper_enabled:
+            client.send_message(str(chat_id), "CAKE shaper module is disabled.")
+            return
         if env_file is None:
             client.send_message(str(chat_id), "/cake_bw is not configured (env file missing).")
             return

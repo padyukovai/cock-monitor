@@ -12,7 +12,12 @@ from telegram_bot.telegram_client import TelegramClient
 def poll_once(cfg: BotConfig) -> None:
     client = TelegramClient(cfg.bot_token)
     try:
-        client.set_my_commands(bot_commands(mtproxy_enabled=bool(cfg.mtproxy and cfg.mtproxy.enabled)))
+        client.set_my_commands(
+            bot_commands(
+                mtproxy_enabled=bool(cfg.mtproxy and cfg.mtproxy.enabled),
+                shaper_enabled=cfg.shaper_enabled,
+            )
+        )
     except RuntimeError:
         # Command menu setup failure should not block command polling.
         pass
@@ -41,6 +46,7 @@ def poll_once(cfg: BotConfig) -> None:
                 status_provider=provider,
                 env_file=cfg.env_file,
                 mtproxy_cfg=cfg.mtproxy,
+                shaper_enabled=cfg.shaper_enabled,
             )
             last_processed_id = max(last_processed_id, update_id)
             processed_updates += 1

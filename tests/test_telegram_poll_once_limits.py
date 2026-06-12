@@ -13,6 +13,7 @@ def _cfg(tmp_path: Path, *, max_updates: int, max_seconds: int) -> SimpleNamespa
         env_file=tmp_path / "env",
         chat_id="1",
         mtproxy=SimpleNamespace(enabled=False),
+        shaper_enabled=False,
         max_updates_per_run=max_updates,
         max_seconds_per_run=max_seconds,
     )
@@ -106,3 +107,4 @@ def test_poll_once_sets_menu_commands_with_mtproxy_disabled(
     assert ("status", "Full conntrack status") in captured[0]
     assert ("help", "Show command help") in captured[0]
     assert not any(name.startswith("mt_") for name, _ in captured[0])
+    assert not any(name == "cake_bw" for name, _ in captured[0])

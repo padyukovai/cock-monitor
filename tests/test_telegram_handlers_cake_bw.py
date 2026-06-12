@@ -29,6 +29,7 @@ def test_cake_bw_updates_max_rate_in_env(tmp_path: Path) -> None:
         status_provider=object(),  # type: ignore[arg-type]
         env_file=env_file,
         mtproxy_cfg=None,
+        shaper_enabled=True,
     )
 
     new_env = env_file.read_text(encoding="utf-8")
@@ -49,6 +50,7 @@ def test_cake_bw_rejects_below_min_rate(tmp_path: Path) -> None:
         status_provider=object(),  # type: ignore[arg-type]
         env_file=env_file,
         mtproxy_cfg=None,
+        shaper_enabled=True,
     )
 
     current_env = env_file.read_text(encoding="utf-8")
@@ -69,6 +71,7 @@ def test_cake_bw_requires_single_integer_argument(tmp_path: Path) -> None:
         status_provider=object(),  # type: ignore[arg-type]
         env_file=env_file,
         mtproxy_cfg=None,
+        shaper_enabled=True,
     )
     assert client.messages == ["Usage: /cake_bw <mbit> [--force]"]
 
@@ -80,6 +83,7 @@ def test_cake_bw_requires_single_integer_argument(tmp_path: Path) -> None:
         status_provider=object(),  # type: ignore[arg-type]
         env_file=env_file,
         mtproxy_cfg=None,
+        shaper_enabled=True,
     )
     assert client.messages == ["Invalid value. Must be integer Mbit."]
 
@@ -96,6 +100,7 @@ def test_cake_bw_rejects_unknown_flag(tmp_path: Path) -> None:
         status_provider=object(),  # type: ignore[arg-type]
         env_file=env_file,
         mtproxy_cfg=None,
+        shaper_enabled=True,
     )
 
     assert client.messages == ["Unknown flag. Usage: /cake_bw <mbit> [--force]"]
@@ -124,6 +129,7 @@ def test_cake_bw_force_applies_global_tc_limit(tmp_path: Path, monkeypatch) -> N
         status_provider=object(),  # type: ignore[arg-type]
         env_file=env_file,
         mtproxy_cfg=None,
+        shaper_enabled=True,
     )
 
     assert seen == [("eth0", 222)]
