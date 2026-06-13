@@ -40,3 +40,14 @@ sudo .venv/bin/python -m cock_monitor run core /etc/cock-monitor.env --dry-run
 ```
 
 Telegram: `/help` shows only commands for enabled modules.
+
+## Telegram token (interactive)
+
+After install, set bot token and chat id on the server (safe for special characters in token):
+
+```bash
+cd /opt/cock-monitor
+sudo bash install/set-telegram-credentials.sh
+```
+
+The script asks for `TELEGRAM_BOT_TOKEN` (hidden input) and `TELEGRAM_CHAT_ID`, backs up `/etc/cock-monitor.env`, and starts `cock-monitor-telegram.service`.
