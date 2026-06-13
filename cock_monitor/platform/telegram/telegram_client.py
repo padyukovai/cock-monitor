@@ -57,10 +57,31 @@ def _retry_with_backoff(
     raise last_exc
 
 
+def _build_opener(proxy_url: str | None) -> urllib.request.OpenerDirector:
+    if not proxy_url:
+        return urllib.request.build_opener()
+    scheme = urllib.parse.urlparse(proxy_url).scheme.lower()
+    if scheme not in ("http", "https"):
+        raise TelegramRequestError(
+            f"TELEGRAM_PROXY_URL must be http:// or https:// (got {scheme!r})",
+            transient=False,
+        )
+    handler = urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
+    return urllib.request.build_opener(handler)
+
+
+def telegram_client_from_env(raw: dict[str, str]) -> TelegramClient:
+    token = raw.get("TELEGRAM_BOT_TOKEN", "").strip()
+    proxy = raw.get("TELEGRAM_PROXY_URL", "").strip() or None
+    return TelegramClient(token, proxy_url=proxy)
+
+
 class TelegramClient:
-    def __init__(self, token: str) -> None:
+    def __init__(self, token: str, *, proxy_url: str | None = None) -> None:
         self._token = token
         self._base = f"https://api.telegram.org/bot{token}/"
+        self._proxy_url = proxy_url.strip() if proxy_url else None
+        self._opener = _build_opener(self._proxy_url)
 
     def get_updates(
         self,
@@ -190,7 +211,7 @@ class TelegramClient:
         operation: str,
     ) -> dict[str, Any]:
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with self._opener.open(req, timeout=timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="replace")

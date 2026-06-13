@@ -68,6 +68,7 @@ def run(argv: list[str] | None = None) -> int:
 
     token = loaded.app.telegram.bot_token
     chat_id = loaded.app.telegram.chat_id
+    proxy = loaded.app.telegram.proxy_url.strip() or None
 
     conn = connect_db(cfg.db_path)
     init_schema(conn)
@@ -78,7 +79,7 @@ def run(argv: list[str] | None = None) -> int:
         alerts = evaluate_alerts(conn, cfg, conns, traffic)
 
     if token and chat_id:
-        client = TelegramClient(token)
+        client = TelegramClient(token, proxy_url=proxy)
         dispatch_mtproxy_alerts(conn=conn, client=client, chat_id=chat_id, alerts=alerts)
     elif alerts:
         print(

@@ -6,15 +6,13 @@ import os
 import socket
 import tempfile
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
 from cock_monitor.config_loader import load_config
 from cock_monitor.defaults import DEFAULT_STATE_FILE
+from cock_monitor.platform.telegram.client import TelegramClient
 
 _MSK_TZ = "Europe/Moscow"
 
@@ -65,6 +63,7 @@ class MemAlertConfig:
     dry_run: bool
     bot_token: str
     chat_id: str
+    proxy_url: str | None
     state_file: Path
 
     @classmethod
@@ -79,6 +78,7 @@ class MemAlertConfig:
             dry_run=dry_run or dry_run_cfg,
             bot_token=raw.get("TELEGRAM_BOT_TOKEN", "").strip(),
             chat_id=raw.get("TELEGRAM_CHAT_ID", "").strip(),
+            proxy_url=raw.get("TELEGRAM_PROXY_URL", "").strip() or None,
             state_file=state.parent / "mem_alert.state",
         )
 
@@ -119,18 +119,10 @@ def _send_telegram(cfg: MemAlertConfig, text: str, out: TextIO, err: TextIO) -> 
         out.write("[DRY_RUN] Telegram message:\n")
         out.write(text + "\n")
         return True
-    url = f"https://api.telegram.org/bot{cfg.bot_token}/sendMessage"
-    data = urllib.parse.urlencode(
-        {"chat_id": cfg.chat_id, "text": text, "disable_web_page_preview": "true"}
-    ).encode("utf-8")
-    req = urllib.request.Request(url, data=data, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            if resp.status != 200:
-                err.write(f"mem_alert: Telegram HTTP {resp.status}\n")
-                return False
-    except urllib.error.URLError as exc:
-        err.write(f"mem_alert: telegram failed: {exc}\n")
+    client = TelegramClient(cfg.bot_token, proxy_url=cfg.proxy_url)
+    result = client.send_message_with_result(cfg.chat_id, text)
+    if not result.success:
+        err.write(f"mem_alert: telegram failed: {result.reason}\n")
         return False
     return True
 

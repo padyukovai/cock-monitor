@@ -43,6 +43,7 @@ class TelegramConfig:
     offset_file: str
     max_updates_per_run: int
     max_seconds_per_run: int
+    proxy_url: str
 
 
 @dataclass(frozen=True)
@@ -148,6 +149,7 @@ class AppConfig:
                 offset_file=telegram_offset,
                 max_updates_per_run=max(1, _as_int(env.get("MAX_UPDATES_PER_RUN"), 200)),
                 max_seconds_per_run=max(1, _as_int(env.get("MAX_SECONDS_PER_RUN"), 20)),
+                proxy_url=env.get("TELEGRAM_PROXY_URL", "").strip(),
             ),
             conntrack=ConntrackConfig(
                 warn_percent=_as_int(env.get("WARN_PERCENT"), 80),

@@ -68,11 +68,12 @@ def run(argv: list[str] | None = None) -> int:
     if args.send_telegram:
         token = loaded.app.telegram.bot_token
         chat_id = loaded.app.telegram.chat_id
+        proxy = loaded.app.telegram.proxy_url.strip() or None
         if not token or not chat_id:
             print("cock-mtproxy-daily: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required", file=sys.stderr)
             conn.close()
             return 1
-        client = TelegramClient(token)
+        client = TelegramClient(token, proxy_url=proxy)
         try:
             client.send_photo(chat_id, out_path, caption=caption)
         except RuntimeError as e:

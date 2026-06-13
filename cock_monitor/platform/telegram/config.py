@@ -29,6 +29,7 @@ class BotConfig:
     mtproxy: MtproxyConfig
     max_updates_per_run: int
     max_seconds_per_run: int
+    proxy_url: str | None
 
     @classmethod
     def from_env_file(cls, env_path: Path) -> BotConfig:
@@ -45,6 +46,7 @@ class BotConfig:
         max_updates = loaded.app.telegram.max_updates_per_run
         max_seconds = loaded.app.telegram.max_seconds_per_run
         home = os.environ.get("COCK_MONITOR_HOME", DEFAULT_COCK_MONITOR_HOME)
+        proxy = loaded.app.telegram.proxy_url.strip() or None
         return cls(
             env_file=env_path,
             env=raw,
@@ -55,4 +57,5 @@ class BotConfig:
             mtproxy=MtproxyConfig.from_env_map(raw),
             max_updates_per_run=max(1, max_updates),
             max_seconds_per_run=max(1, max_seconds),
+            proxy_url=proxy,
         )

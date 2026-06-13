@@ -8,9 +8,6 @@ import socket
 import subprocess
 import tempfile
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
@@ -140,6 +137,7 @@ class CheckState:
 class ConntrackCheckConfig:
     telegram_bot_token: str
     telegram_chat_id: str
+    telegram_proxy_url: str | None
     warn_percent: int
     crit_percent: int
     cooldown_seconds: int
@@ -185,6 +183,7 @@ class ConntrackCheckConfig:
         return cls(
             telegram_bot_token=raw.get("TELEGRAM_BOT_TOKEN", "").strip(),
             telegram_chat_id=raw.get("TELEGRAM_CHAT_ID", "").strip(),
+            telegram_proxy_url=raw.get("TELEGRAM_PROXY_URL", "").strip() or None,
             warn_percent=_as_int(raw.get("WARN_PERCENT", ""), 80),
             crit_percent=_as_int(raw.get("CRIT_PERCENT", ""), 95),
             cooldown_seconds=cooldown,
@@ -230,28 +229,21 @@ class TelegramAdapter:
         self._cfg = cfg
         self._out = out
         self._err = err
+        from cock_monitor.platform.telegram.client import TelegramClient
+
+        self._client = TelegramClient(
+            cfg.telegram_bot_token,
+            proxy_url=cfg.telegram_proxy_url,
+        )
 
     def send(self, text: str) -> bool:
         if self._cfg.dry_run:
             self._out.write("[DRY_RUN] Telegram message:\n")
             self._out.write(text + "\n")
             return True
-        url = f"https://api.telegram.org/bot{self._cfg.telegram_bot_token}/sendMessage"
-        data = urllib.parse.urlencode(
-            {
-                "chat_id": self._cfg.telegram_chat_id,
-                "text": text,
-                "disable_web_page_preview": "true",
-            }
-        ).encode("utf-8")
-        req = urllib.request.Request(url, data=data, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                if resp.status != 200:
-                    self._err.write(f"check-conntrack: Telegram API HTTP {resp.status}\n")
-                    return False
-        except urllib.error.URLError as exc:
-            self._err.write(f"check-conntrack: curl failed: {exc}\n")
+        result = self._client.send_message_with_result(self._cfg.telegram_chat_id, text)
+        if not result.success:
+            self._err.write(f"check-conntrack: telegram failed: {result.reason}\n")
             return False
         return True
 

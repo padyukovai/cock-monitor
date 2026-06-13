@@ -5,9 +5,6 @@ from __future__ import annotations
 import os
 import socket
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,6 +14,7 @@ from cock_monitor.modules.wg.collector import collect_wg_snapshot
 from cock_monitor.modules.wg.storage import insert_sample, last_alert_ts, peers_to_json, record_alert
 from cock_monitor.platform.registry import module_enabled
 from cock_monitor.platform.storage.manager import StorageManager
+from cock_monitor.platform.telegram.client import TelegramClient
 
 
 def _as_bool(raw: str, default: bool = False) -> bool:
@@ -42,6 +40,7 @@ class WgConfig:
     dry_run: bool
     bot_token: str
     chat_id: str
+    proxy_url: str | None
     metrics_db: Path
 
     @classmethod
@@ -54,6 +53,7 @@ class WgConfig:
             dry_run=dry_run or _as_bool(raw.get("DRY_RUN", ""), default=False),
             bot_token=raw.get("TELEGRAM_BOT_TOKEN", "").strip(),
             chat_id=raw.get("TELEGRAM_CHAT_ID", "").strip(),
+            proxy_url=raw.get("TELEGRAM_PROXY_URL", "").strip() or None,
             metrics_db=Path(raw.get("METRICS_DB", DEFAULT_METRICS_DB)),
         )
 
@@ -63,16 +63,8 @@ def _send_telegram(cfg: WgConfig, text: str) -> bool:
         print("[DRY_RUN] Telegram message:")
         print(text)
         return True
-    url = f"https://api.telegram.org/bot{cfg.bot_token}/sendMessage"
-    data = urllib.parse.urlencode(
-        {"chat_id": cfg.chat_id, "text": text, "disable_web_page_preview": "true"}
-    ).encode("utf-8")
-    req = urllib.request.Request(url, data=data, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            return resp.status == 200
-    except urllib.error.URLError:
-        return False
+    client = TelegramClient(cfg.bot_token, proxy_url=cfg.proxy_url)
+    return client.send_message_with_result(cfg.chat_id, text).success
 
 
 def run_wg_collect(env_file: Path, *, dry_run: bool = False) -> int:

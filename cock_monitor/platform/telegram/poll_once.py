@@ -12,7 +12,7 @@ from cock_monitor.platform.telegram.offset_store import read_offset, write_offse
 
 
 def poll_once(cfg: BotConfig) -> None:
-    client = TelegramClient(cfg.bot_token)
+    client = TelegramClient(cfg.bot_token, proxy_url=cfg.proxy_url)
     registry = get_registry()
     env_map = dict(getattr(cfg, "env", {}))
     if not env_map and cfg.env_file.is_file():

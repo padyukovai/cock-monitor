@@ -55,6 +55,7 @@ def _run_core_daily(env_file: Path) -> int:
     raw = load_runtime_env(env_file)
     token = raw.get("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = raw.get("TELEGRAM_CHAT_ID", "").strip()
+    proxy = raw.get("TELEGRAM_PROXY_URL", "").strip() or None
     if not token or not chat_id:
         return 1
     fd, tmp = tempfile.mkstemp(suffix=".png")
@@ -62,7 +63,7 @@ def _run_core_daily(env_file: Path) -> int:
     out = Path(tmp)
     try:
         caption = run_core_chart(env_file, out)
-        client = TelegramClient(token)
+        client = TelegramClient(token, proxy_url=proxy)
         client.send_photo(chat_id, out, caption=caption)
     finally:
         out.unlink(missing_ok=True)

@@ -222,6 +222,18 @@ print_summary() {
   echo "  journalctl -u cock-monitor-daily.service -n 100 --no-pager"
 }
 
+maybe_run_deep_configure() {
+  read -r -p "Запустить углублённую настройку сейчас? [y/N]: " run_configure
+  if [[ ! "${run_configure:-}" =~ ^[Yy]$ ]]; then
+    return 0
+  fi
+  if [[ ! -x "${PYTHON_BIN}" ]]; then
+    die "Не найден Python в venv: ${PYTHON_BIN}"
+  fi
+  log "Запускаю deep configure wizard..."
+  "${PYTHON_BIN}" -m cock_monitor configure --env-file "${ENV_FILE}" --repo-root "${REPO_ROOT}"
+}
+
 main() {
   ensure_root
   ensure_linux_systemd
@@ -255,6 +267,7 @@ EOF
   validate_configuration
   enable_timers
   print_summary
+  maybe_run_deep_configure
 }
 
 main "$@"

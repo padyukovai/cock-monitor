@@ -464,9 +464,10 @@ def send_telegram(text: str, parse_mode: str | None = None) -> DeliveryResult:
         return DeliveryResult(success=True, reason="dry_run", attempts=1)
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     chat = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    proxy = os.environ.get("TELEGRAM_PROXY_URL", "").strip() or None
     if not token or not chat:
         return DeliveryResult(success=False, reason="telegram_not_configured", attempts=1)
-    return TelegramClient(token).send_message_with_result(chat, text, parse_mode=parse_mode or "")
+    return TelegramClient(token, proxy_url=proxy).send_message_with_result(chat, text, parse_mode=parse_mode or "")
 
 
 def compute_level(

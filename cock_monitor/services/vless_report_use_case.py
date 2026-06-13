@@ -201,9 +201,10 @@ def run_vless_report_use_case(
             else:
                 token = loaded.app.telegram.bot_token
                 chat = loaded.app.telegram.chat_id
+                proxy = loaded.app.telegram.proxy_url.strip() or None
                 if not token or not chat:
                     raise VlessReportError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID required")
-                client = TelegramClient(token)
+                client = TelegramClient(token, proxy_url=proxy)
                 client.send_message(chat, report_text, parse_mode="HTML")
                 if chart_enable and prev_map:
                     tmp_path = ""

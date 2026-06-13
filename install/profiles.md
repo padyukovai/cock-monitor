@@ -51,3 +51,20 @@ sudo bash install/set-telegram-credentials.sh
 ```
 
 The script asks for `TELEGRAM_BOT_TOKEN` (hidden input) and `TELEGRAM_CHAT_ID`, backs up `/etc/cock-monitor.env`, and starts `cock-monitor-telegram.service`.
+
+## RF2: Telegram via VLESS Germany
+
+RF2 blocks direct access to `api.telegram.org`. The hop `xray-rf2-hop` exits via VLESS to Germany (`144.31.154.44`).
+
+1. Enable local HTTP proxy on the hop (once per server):
+
+```bash
+sudo bash install/rf2/patch-xray-hop-http-proxy.sh
+```
+
+2. Profile `stack-rf2-wg` sets `TELEGRAM_PROXY_URL=http://127.0.0.1:10809`. After install or env change:
+
+```bash
+grep TELEGRAM_PROXY_URL /etc/cock-monitor.env
+sudo systemctl start cock-monitor-telegram.service
+```
