@@ -6,10 +6,9 @@ from mtproxy_module.collector import parse_iptables_monitor_stdout, parse_ss_std
 
 
 def test_parse_ss_stdout_ipv4_and_ipv6() -> None:
-    stdout = """Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port
-ESTAB 0      0      10.0.0.1:8443             203.0.113.5:12345
-ESTAB 0      0      10.0.0.1:8443             [2001:db8::1]:54321
-ESTAB 0      0      10.0.0.1:8443             198.51.100.2:9999
+    stdout = """0 0 10.0.0.1:8443 203.0.113.5:12345
+0 0 10.0.0.1:8443 [2001:db8::1]:54321
+0 0 10.0.0.1:8443 198.51.100.2:9999
 """
     got = parse_ss_stdout(stdout)
     assert got["total"] == 3
@@ -17,6 +16,16 @@ ESTAB 0      0      10.0.0.1:8443             198.51.100.2:9999
     assert got["per_ip"]["203.0.113.5"] == 1
     assert got["per_ip"]["2001:db8::1"] == 1
     assert got["per_ip"]["198.51.100.2"] == 1
+
+
+def test_parse_ss_stdout_skips_header_and_short_lines() -> None:
+    stdout = """Recv-Q Send-Q Local Address:Port Peer Address:Port
+0 0 10.0.0.1:8443 203.0.113.5:12345
+incomplete
+"""
+    got = parse_ss_stdout(stdout)
+    assert got["total"] == 1
+    assert got["per_ip"]["203.0.113.5"] == 1
 
 
 def test_parse_iptables_monitor_dpt_spt() -> None:

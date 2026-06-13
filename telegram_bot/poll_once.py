@@ -1,52 +1,55 @@
+"""Shim — delegates to platform poll_once, adds test-compatible exports."""
+
 from __future__ import annotations
 
 import time
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
-from telegram_bot.config import BotConfig
-from telegram_bot.handlers import bot_commands, handle_update
-from telegram_bot.offset_store import read_offset, write_offset
+from cock_monitor.platform.config import load_runtime_env
+from cock_monitor.platform.telegram.client import TelegramClient
+from cock_monitor.platform.telegram.config import BotConfig
+from cock_monitor.platform.telegram.dispatch import build_help_text, handle_update
+from cock_monitor.platform.telegram.offset_store import read_offset, write_offset
+from cock_monitor.platform.telegram import poll_once as _platform_poll_once
 from telegram_bot.status_provider import PythonStatusProvider
-from telegram_bot.telegram_client import TelegramClient
 
 
-def poll_once(cfg: BotConfig) -> None:
-    client = TelegramClient(cfg.bot_token)
-    try:
-        client.set_my_commands(bot_commands(mtproxy_enabled=bool(cfg.mtproxy and cfg.mtproxy.enabled)))
-    except RuntimeError:
-        # Command menu setup failure should not block command polling.
-        pass
-    store_path = cfg.offset_file
-    next_off = read_offset(store_path)
-    provider = PythonStatusProvider(
-        env_file=cfg.env_file,
+def _normalize_cfg(cfg: Any) -> BotConfig | Any:
+    if isinstance(cfg, BotConfig):
+        return cfg
+    env_file = Path(getattr(cfg, "env_file", "/etc/cock-monitor.env"))
+    env: dict[str, str]
+    if hasattr(cfg, "env") and getattr(cfg, "env"):
+        env = dict(cfg.env)
+    elif env_file.is_file():
+        env = load_runtime_env(env_file)
+    else:
+        env = {"ENABLED_MODULES": "core"}
+    return SimpleNamespace(
+        bot_token=getattr(cfg, "bot_token", ""),
+        chat_id=str(getattr(cfg, "chat_id", "")),
+        offset_file=Path(getattr(cfg, "offset_file", env_file.parent / "telegram_offset")),
+        env_file=env_file,
+        env=env,
+        max_updates_per_run=int(getattr(cfg, "max_updates_per_run", 200)),
+        max_seconds_per_run=int(getattr(cfg, "max_seconds_per_run", 20)),
     )
-    started_at = time.monotonic()
-    processed_updates = 0
-    while True:
-        if processed_updates >= cfg.max_updates_per_run:
-            break
-        if time.monotonic() - started_at >= cfg.max_seconds_per_run:
-            break
-        updates = client.get_updates(next_off, timeout=0)
-        if not updates:
-            break
-        last_processed_id = next_off - 1
-        for u in updates:
-            update_id = int(u["update_id"])
-            handle_update(
-                u,
-                allowed_chat_id=cfg.chat_id,
-                client=client,
-                status_provider=provider,
-                env_file=cfg.env_file,
-                mtproxy_cfg=cfg.mtproxy,
-            )
-            last_processed_id = max(last_processed_id, update_id)
-            processed_updates += 1
-            if processed_updates >= cfg.max_updates_per_run:
-                break
-            if time.monotonic() - started_at >= cfg.max_seconds_per_run:
-                break
-        next_off = last_processed_id + 1
-        write_offset(store_path, next_off)
+
+
+def poll_once(cfg: Any) -> None:
+    return _platform_poll_once.poll_once(_normalize_cfg(cfg))
+
+
+__all__ = [
+    "poll_once",
+    "TelegramClient",
+    "BotConfig",
+    "handle_update",
+    "read_offset",
+    "write_offset",
+    "PythonStatusProvider",
+    "build_help_text",
+    "time",
+]

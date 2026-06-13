@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll Telegram commands every 3 minutes
+Documentation=file:///opt/cock-monitor/README.md
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=3min
+Unit=cock-monitor-telegram.service
+
+[Install]
+WantedBy=timers.target

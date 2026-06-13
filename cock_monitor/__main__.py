@@ -1,58 +1,80 @@
-"""python -m cock_monitor [preflight] [...]"""
+"""python -m cock_monitor — v2 modular CLI."""
 
 from __future__ import annotations
 
 import sys
 
-from cock_monitor.preflight import main as preflight_main
-
 
 def main(argv: list[str] | None = None) -> int:
     a = list(argv if argv is not None else sys.argv[1:])
+
+    if a[:1] == ["run"]:
+        from cock_monitor.run_cli import run
+
+        return run(a[1:])
+    if a[:1] == ["modules"]:
+        from cock_monitor.run_cli import list_modules_cmd
+
+        return list_modules_cmd(a[1:])
+    if a[:1] == ["install"]:
+        from cock_monitor.install_cli import main as install_main
+
+        return install_main(["install", *a[1:]])
+    if a[:1] == ["uninstall"]:
+        from cock_monitor.install_cli import main as install_main
+
+        return install_main(["uninstall", *a[1:]])
     if a[:1] == ["daily-chart"]:
-        from cock_monitor.daily_chart_cli import run as daily_chart_run
+        from pathlib import Path
 
-        return daily_chart_run(a[1:])
+        from cock_monitor.run_cli import run_module
+
+        env = Path(a[2] if len(a) > 2 and not a[1].startswith("-") else "/etc/cock-monitor.env")
+        from cock_monitor.run_cli import _run_core_daily
+
+        return _run_core_daily(env)
+    if a[:1] == ["conntrack-check"]:
+        from pathlib import Path
+
+        from cock_monitor.run_cli import run_module
+
+        dry = "--dry-run" in a
+        env_arg = next((x for x in a[1:] if not x.startswith("-")), "/etc/cock-monitor.env")
+        return run_module("core", Path(env_arg), dry_run=dry)
     if a[:1] == ["vless-report"]:
-        from cock_monitor.services.vless_report import run as vless_report_run
+        from cock_monitor.services.vless_report import run as vless_run
 
-        return vless_report_run(a[1:])
+        return vless_run(a[1:])
     if a[:1] == ["mtproxy-collect"]:
-        from cock_monitor.mtproxy_collect_cli import run as mtproxy_collect_run
+        from cock_monitor.mtproxy_collect_cli import run as mtproxy_run
 
-        return mtproxy_collect_run(a[1:])
+        return mtproxy_run(a[1:])
     if a[:1] == ["mtproxy-daily"]:
         from cock_monitor.mtproxy_daily_cli import run as mtproxy_daily_run
 
         return mtproxy_daily_run(a[1:])
-    if a[:1] == ["conntrack-check"]:
-        from cock_monitor.conntrack_check_cli import run as conntrack_check_run
-
-        return conntrack_check_run(a[1:])
     if a[:1] == ["conntrack-decide"]:
         from cock_monitor.conntrack_decide_cli import run as conntrack_decide_run
 
         return conntrack_decide_run(a[1:])
-    if a[:1] == ["conntrack-storage"]:
-        from cock_monitor.conntrack_storage_cli import run as conntrack_storage_run
-
-        return conntrack_storage_run(a[1:])
     if a[:1] == ["config-check"]:
         from cock_monitor.config_check_cli import run as config_check_run
 
         return config_check_run(a[1:])
-    if a[:1] == ["configure"]:
-        from cock_monitor.configure_cli import run as configure_run
-
-        return configure_run(a[1:])
-    if a[:1] == ["burst-capture"]:
-        from cock_monitor.burst_capture_cli import run as burst_capture_run
-
-        return burst_capture_run(a[1:])
     if a[:1] == ["preflight"]:
-        a = a[1:]
+        from cock_monitor.preflight import main as preflight_main
+
+        return preflight_main(a[1:] if len(a) > 1 else [])
     if a[:1] in (["help"], ["-h"], ["--help"]):
-        return preflight_main(["--help"])
+        print(
+            "Usage: python -m cock_monitor {run|modules|install|uninstall|preflight|config-check} ...\n"
+            "  run <module> [env_file] [--dry-run]\n"
+            "  install --profile stack-3xui [--wipe-data] [--token ...] [--chat-id ...]"
+        )
+        return 0
+
+    from cock_monitor.preflight import main as preflight_main
+
     return preflight_main(a)
 
 

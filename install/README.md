@@ -22,6 +22,7 @@ sudo bash install/install-ubuntu-minimal.sh
   - `cock-monitor.timer`
   - `cock-monitor-telegram-bot.timer`
   - `cock-monitor-daily.timer`
+- после установки предлагает запустить углублённый конфигуратор `python -m cock_monitor configure`.
 
 ## Ограничения
 
@@ -42,6 +43,26 @@ sudo bash install/install-ubuntu-minimal.sh
 Рекомендация:
 
 - если боевой `/etc/cock-monitor.env` уже настроен вручную, при повторном запуске отвечайте `N` на перезапись env-файла.
+
+## Deep configure wizard
+
+После минимального install-шага можно в любой момент запустить:
+
+```bash
+sudo .venv/bin/python -m cock_monitor configure --env-file /etc/cock-monitor.env
+```
+
+Wizard работает в цикле:
+
+- `Configure core` — Telegram + пороги + базовые параметры;
+- `Configure module` — отдельная настройка `mtproxy`, `incident`, `shaper`, `vless`;
+- `Review and apply` — общий dry summary, затем ввод `ok` для применения.
+
+После `ok` конфигуратор:
+
+- обновляет `/etc/cock-monitor.env` (с `.bak` бэкапом при наличии файла),
+- переустанавливает релевантные `systemd` unit/timer и override,
+- выполняет `preflight` и `config-check`.
 
 ## Безопасная переустановка systemd override
 

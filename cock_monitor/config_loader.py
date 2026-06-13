@@ -7,6 +7,7 @@ from pathlib import Path
 
 from cock_monitor.config_schema import AppConfig
 from cock_monitor.env import parse_env_file
+from cock_monitor.platform.registry import module_enabled
 
 
 @dataclass(frozen=True)
@@ -44,9 +45,9 @@ def validate_config(cfg: AppConfig) -> ConfigValidationResult:
         errors.append("LA_WARN_THRESHOLD must be > 0")
     if cfg.metrics.stats_delta_min_interval_sec < 0:
         errors.append("STATS_DELTA_MIN_INTERVAL_SEC must be >= 0")
-    if cfg.mtproxy.enabled:
+    if module_enabled("mtproxy", cfg.raw):
         if not cfg.telegram.bot_token or not cfg.telegram.chat_id:
-            errors.append("MTPROXY_ENABLE=1 requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
+            errors.append("ENABLED_MODULES includes mtproxy — set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
     if cfg.incident.alert_enable:
         if not cfg.telegram.bot_token or not cfg.telegram.chat_id:
             errors.append(
@@ -75,6 +76,9 @@ def validate_config(cfg: AppConfig) -> ConfigValidationResult:
         "INCIDENT_",
         "SHAPER_",
         "STATUS_",
+        "ENABLED_",
+        "MEM_",
+        "WG_",
         "LA_",
     }
     for key in cfg.raw:

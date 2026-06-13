@@ -1,31 +1,39 @@
 # cock-monitor
 
-Лёгкая проверка заполненности таблицы **nf_conntrack** на Linux VPS с алертами в **Telegram**. Запуск по расписанию (**systemd timer** или **cron**), без постоянного демона, без Prometheus/Grafana и без привязки к MTProxy.
+Модульная платформа мониторинга Linux VPS (v2): **core** (conntrack, CPU, RAM, Telegram) + опциональные модули (**vless**, **mtproxy**, **wg**, **incident**, **shaper**). Включение через `ENABLED_MODULES` в `/etc/cock-monitor.env`.
+
+```bash
+# Чистая установка (breaking v2)
+sudo bash install/install.sh --profile stack-3xui --token '...' --chat-id '...' --wipe-data
+```
+
+Документация: [config/README.md](config/README.md), [docs/v2-migration.md](docs/v2-migration.md), [install/profiles.md](install/profiles.md).
+
+---
+
+Лёгкая проверка заполненности таблицы **nf_conntrack** на Linux VPS с алертами в **Telegram**. Запуск по расписанию (**systemd timer**), без постоянного демона.
 
 Требования: **bash**, **curl**, **Python 3** (модуль `cock_monitor` в том же дереве, что и `bin/` — политика алертов conntrack, запись conntrack/host-метрик в SQLite через стандартный модуль **`sqlite3`**). Опционально пакет **conntrack** (утилита `conntrack -S` для строки в сообщении и для опциональных алертов по счётчикам). Для истории метрик и дельта-алертов нужен каталог **`/var/lib/cock-monitor`** (или другой путь к `METRICS_DB`); утилита **`sqlite3`** (CLI) не обязательна для записи, но удобна для **ручных запросов** к `METRICS_DB` (примеры ниже). Для команд бота **`/status`** и **`/chart`** в Telegram нужны **Python 3**; **`/chart`** и суточный отчёт по таймеру требуют **matplotlib** (удобнее всего пакет ОС `python3-matplotlib`, см. [requirements-chart.txt](requirements-chart.txt)). Опциональный **systemd timer** (или **cron**), см. ниже.
 
 ## Быстрая установка (Ubuntu / Debian)
 
-### One-shot инсталлятор (рекомендуется для первого запуска)
-
-Из корня клонированного репозитория:
+### One-shot инсталлятор v2 (рекомендуется)
 
 ```bash
-sudo bash install/install-ubuntu-minimal.sh
+sudo bash install/install.sh --profile core --token 'BOT_TOKEN' --chat-id 'CHAT_ID' --wipe-data
 ```
 
-Что делает скрипт:
+Профили: `core`, `stack-3xui`, `stack-mtproxy`, `stack-rf2-wg`, `stack-rf1` — см. [install/profiles.md](install/profiles.md).
 
-- интерактивно спрашивает `TELEGRAM_BOT_TOKEN` и `TELEGRAM_CHAT_ID` (с подсказками);
-- устанавливает минимальные зависимости через `apt` (включая `conntrack` и `python3-matplotlib`);
-- создаёт `.venv` в текущем клоне и ставит проект + `chart` extras;
-- создаёт `/etc/cock-monitor.env` (права `600`) и `/var/lib/cock-monitor` (права `700`);
-- устанавливает и включает базовые таймеры:
-  - `cock-monitor.timer`
-  - `cock-monitor-telegram-bot.timer`
-  - `cock-monitor-daily.timer`
+Удаление (legacy + v2 units):
 
-Скрипт рассчитан на запуск из текущего клона (без копирования в `/opt/cock-monitor`): для systemd создаются override-конфиги с `WorkingDirectory` на текущий путь репозитория и запуском через `.venv/bin/python`.
+```bash
+sudo bash install/uninstall.sh --wipe-data
+```
+
+### Legacy: install-ubuntu-minimal.sh
+
+Устарел; используйте `install/install.sh`. Старый скрипт оставлен для совместимости.
 
 ### Ручная установка (альтернатива)
 

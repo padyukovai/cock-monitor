@@ -1,0 +1,27 @@
+"""Core module registration."""
+
+from __future__ import annotations
+
+from cock_monitor.platform.registry import ModuleRegistry, ModuleSpec, TelegramCommand
+
+
+def register(registry: ModuleRegistry) -> None:
+    from cock_monitor.modules.core.storage import migrate_core_schema
+
+    registry.register(
+        ModuleSpec(
+            id="core",
+            label="Core host monitoring (conntrack, CPU, RAM)",
+            systemd_service="cock-monitor-core.service",
+            systemd_timer="cock-monitor-core.timer",
+            env_fragment="core.env",
+            apt_packages=("python3-matplotlib",),
+            required_tools=("conntrack",),
+            schema_migrate=migrate_core_schema,
+            telegram_commands=(
+                TelegramCommand("status", "Full host + conntrack status", "core"),
+                TelegramCommand("chart", "PNG chart (conntrack + host, 24h)", "core"),
+                TelegramCommand("help", "Show enabled module commands", "core"),
+            ),
+        )
+    )

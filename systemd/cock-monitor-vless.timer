@@ -1,0 +1,11 @@
+[Unit]
+Description=Run cock-monitor VLESS daily at 09:05 MSK
+Documentation=file:///opt/cock-monitor/README.md
+
+[Timer]
+OnCalendar=*-*-* 06:05:00 UTC
+Persistent=true
+Unit=cock-monitor-vless.service
+
+[Install]
+WantedBy=timers.target

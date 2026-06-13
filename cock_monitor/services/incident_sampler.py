@@ -10,8 +10,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from telegram_bot.telegram_client import DeliveryResult, TelegramClient
-
 from cock_monitor.adapters.linux_host import (
     parse_ss_tan_state_counts,
     read_conntrack_fill,
@@ -19,6 +17,7 @@ from cock_monitor.adapters.linux_host import (
     read_load_mem_from_proc,
 )
 from cock_monitor.config_loader import load_config
+from cock_monitor.platform.telegram.client import DeliveryResult, TelegramClient
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -662,10 +661,18 @@ def build_json_line(
     return json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
 
 
+def _incident_enabled() -> bool:
+    if os.environ.get("INCIDENT_SAMPLER_ENABLE", "0") == "1":
+        return True
+    from cock_monitor.platform.registry import module_enabled
+
+    return module_enabled("incident", dict(os.environ))
+
+
 def run_once() -> int:
     """Single sampler tick (after env loaded)."""
     apply_incident_defaults()
-    if os.environ.get("INCIDENT_SAMPLER_ENABLE", "0") != "1":
+    if not _incident_enabled():
         return 0
 
     now_ts = int(time.time())

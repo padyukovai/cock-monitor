@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from cock_monitor.defaults import DEFAULT_METRICS_DB, DEFAULT_STATE_FILE
+from cock_monitor.platform.registry import module_enabled
 
 
 def _as_int(raw: str | None, default: int) -> int:
@@ -179,7 +180,7 @@ class AppConfig:
                 ),
             ),
             mtproxy=MtproxyConfigModel(
-                enabled=_as_bool(env.get("MTPROXY_ENABLE"), default=False),
+                enabled=module_enabled("mtproxy", env),
                 port=_as_int(env.get("MTPROXY_PORT"), 8443),
                 alert_cooldown_minutes=max(
                     0, _as_int(env.get("MTPROXY_ALERT_COOLDOWN_MINUTES"), 30)
@@ -207,7 +208,7 @@ class AppConfig:
                 chart_top_n=max(1, _as_int(env.get("VLESS_CHART_TOP_N"), 10)),
             ),
             incident=IncidentConfig(
-                enabled=_as_bool(env.get("INCIDENT_SAMPLER_ENABLE"), default=False),
+                enabled=module_enabled("incident", env),
                 alert_enable=_as_bool(env.get("INCIDENT_ALERT_ENABLE"), default=False),
                 alert_cooldown_sec=max(0, _as_int(env.get("INCIDENT_ALERT_COOLDOWN_SEC"), 300)),
                 log_dir=Path(env.get("INCIDENT_LOG_DIR", "/var/lib/cock-monitor")),
@@ -218,7 +219,7 @@ class AppConfig:
                 ),
             ),
             shaper=ShaperConfig(
-                enabled=_as_bool(env.get("SHAPER_ENABLE"), default=False),
+                enabled=module_enabled("shaper", env),
                 iface=env.get("SHAPER_IFACE", "ens3").strip() or "ens3",
                 status_file=Path(
                     env.get("SHAPER_STATUS_FILE", "/var/lib/cock-monitor/cpu_shaper.status")

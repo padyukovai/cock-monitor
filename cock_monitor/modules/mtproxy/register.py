@@ -1,0 +1,34 @@
+"""MTProxy module registration."""
+
+from __future__ import annotations
+
+import sqlite3
+
+from cock_monitor.platform.registry import ModuleRegistry, ModuleSpec, TelegramCommand
+
+
+def _migrate_mtproxy(conn: sqlite3.Connection) -> None:
+    from cock_monitor.modules.mtproxy.repository import init_schema
+
+    init_schema(conn)
+
+
+def register(registry: ModuleRegistry) -> None:
+    registry.register(
+        ModuleSpec(
+            id="mtproxy",
+            label="MTProto proxy monitoring",
+            depends_on=("core",),
+            systemd_service="cock-monitor-mtproxy.service",
+            systemd_timer="cock-monitor-mtproxy.timer",
+            env_fragment="mtproxy.env",
+            required_tools=("ss", "iptables", "pgrep"),
+            apt_packages=("python3-matplotlib",),
+            schema_migrate=_migrate_mtproxy,
+            telegram_commands=(
+                TelegramCommand("mt_status", "MTProxy live status", "mtproxy"),
+                TelegramCommand("mt_today", "MTProxy 24h report + chart", "mtproxy"),
+                TelegramCommand("mt_threshold", "Update MTProxy thresholds", "mtproxy"),
+            ),
+        )
+    )

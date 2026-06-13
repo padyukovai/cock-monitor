@@ -19,7 +19,7 @@ def _update(text: str) -> dict[str, object]:
 
 def test_cake_bw_updates_max_rate_in_env(tmp_path: Path) -> None:
     env_file = tmp_path / "cock.env"
-    env_file.write_text("SHAPER_MIN_RATE_MBIT=10\nSHAPER_MAX_RATE_MBIT=100\n", encoding="utf-8")
+    env_file.write_text("ENABLED_MODULES=core,shaper\nSHAPER_MIN_RATE_MBIT=10\nSHAPER_MAX_RATE_MBIT=100\n", encoding="utf-8")
     client = _Client()
 
     handle_update(
@@ -39,7 +39,7 @@ def test_cake_bw_updates_max_rate_in_env(tmp_path: Path) -> None:
 
 def test_cake_bw_rejects_below_min_rate(tmp_path: Path) -> None:
     env_file = tmp_path / "cock.env"
-    env_file.write_text("SHAPER_MIN_RATE_MBIT=20\nSHAPER_MAX_RATE_MBIT=100\n", encoding="utf-8")
+    env_file.write_text("ENABLED_MODULES=core,shaper\nSHAPER_MIN_RATE_MBIT=20\nSHAPER_MAX_RATE_MBIT=100\n", encoding="utf-8")
     client = _Client()
 
     handle_update(
@@ -59,7 +59,7 @@ def test_cake_bw_rejects_below_min_rate(tmp_path: Path) -> None:
 
 def test_cake_bw_requires_single_integer_argument(tmp_path: Path) -> None:
     env_file = tmp_path / "cock.env"
-    env_file.write_text("SHAPER_MAX_RATE_MBIT=100\n", encoding="utf-8")
+    env_file.write_text("ENABLED_MODULES=core,shaper\nSHAPER_MAX_RATE_MBIT=100\n", encoding="utf-8")
     client = _Client()
 
     handle_update(
@@ -86,7 +86,7 @@ def test_cake_bw_requires_single_integer_argument(tmp_path: Path) -> None:
 
 def test_cake_bw_rejects_unknown_flag(tmp_path: Path) -> None:
     env_file = tmp_path / "cock.env"
-    env_file.write_text("SHAPER_MAX_RATE_MBIT=100\n", encoding="utf-8")
+    env_file.write_text("ENABLED_MODULES=core,shaper\nSHAPER_MAX_RATE_MBIT=100\n", encoding="utf-8")
     client = _Client()
 
     handle_update(
@@ -103,17 +103,21 @@ def test_cake_bw_rejects_unknown_flag(tmp_path: Path) -> None:
 
 def test_cake_bw_force_applies_global_tc_limit(tmp_path: Path, monkeypatch) -> None:
     env_file = tmp_path / "cock.env"
-    env_file.write_text("SHAPER_IFACE=eth0\nSHAPER_MIN_RATE_MBIT=10\nSHAPER_MAX_RATE_MBIT=100\n", encoding="utf-8")
+    env_file.write_text(
+        "ENABLED_MODULES=core,shaper\nSHAPER_IFACE=eth0\nSHAPER_MIN_RATE_MBIT=10\nSHAPER_MAX_RATE_MBIT=100\n",
+        encoding="utf-8",
+    )
     client = _Client()
     seen: list[tuple[str, int]] = []
 
-    monkeypatch.setattr("telegram_bot.handlers.run_with_timeout", lambda fn, _timeout: fn())
+    monkeypatch.setattr("cock_monitor.platform.telegram.dispatch.run_with_timeout", lambda fn, _timeout: fn())
+
     def _fake_apply_global_cake_limit(*, iface: str, rate_mbit: int) -> str:
         seen.append((iface, rate_mbit))
         return f"Applied global CAKE limit on {iface}: {rate_mbit}M"
 
     monkeypatch.setattr(
-        "telegram_bot.handlers._apply_global_cake_limit",
+        "cock_monitor.platform.telegram.dispatch._apply_global_cake_limit",
         _fake_apply_global_cake_limit,
     )
 

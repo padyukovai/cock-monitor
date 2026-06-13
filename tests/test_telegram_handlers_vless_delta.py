@@ -17,18 +17,24 @@ def _update(text: str) -> dict[str, object]:
     return {"message": {"chat": {"id": "1"}, "text": text}}
 
 
-def test_vless_delta_defaults_to_daily_mode(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
+def _write_env(path: Path, extra: str = "") -> None:
+    path.write_text(f"ENABLED_MODULES=core,vless\n{extra}", encoding="utf-8")
+
+
+def test_vless_delta_defaults_to_daily_mode(tmp_path: Path, monkeypatch) -> None:
     calls: list[str] = []
-    monkeypatch.setattr("telegram_bot.handlers.run_with_timeout", lambda fn, _timeout: fn())
+    env_file = tmp_path / "env"
+    _write_env(env_file)
     monkeypatch.setattr(
-        "telegram_bot.handlers.run_daily_with_telegram",
+        "cock_monitor.platform.telegram.dispatch.run_with_timeout",
+        lambda fn, _timeout: fn(),
+    )
+    monkeypatch.setattr(
+        "cock_monitor.platform.telegram.dispatch.run_daily_with_telegram",
         lambda _env_file: calls.append("daily"),
     )
     monkeypatch.setattr(
-        "telegram_bot.handlers.run_since_last_sent_with_telegram",
+        "cock_monitor.platform.telegram.dispatch.run_since_last_sent_with_telegram",
         lambda _env_file: calls.append("since-last"),
     )
 
@@ -38,7 +44,7 @@ def test_vless_delta_defaults_to_daily_mode(
         allowed_chat_id="1",
         client=client,
         status_provider=object(),  # type: ignore[arg-type]
-        env_file=tmp_path / "env",
+        env_file=env_file,
         mtproxy_cfg=None,
     )
 
@@ -46,18 +52,20 @@ def test_vless_delta_defaults_to_daily_mode(
     assert not client.messages
 
 
-def test_vless_delta_since_last_mode_by_flag(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
+def test_vless_delta_since_last_mode_by_flag(tmp_path: Path, monkeypatch) -> None:
     calls: list[str] = []
-    monkeypatch.setattr("telegram_bot.handlers.run_with_timeout", lambda fn, _timeout: fn())
+    env_file = tmp_path / "env"
+    _write_env(env_file)
     monkeypatch.setattr(
-        "telegram_bot.handlers.run_daily_with_telegram",
+        "cock_monitor.platform.telegram.dispatch.run_with_timeout",
+        lambda fn, _timeout: fn(),
+    )
+    monkeypatch.setattr(
+        "cock_monitor.platform.telegram.dispatch.run_daily_with_telegram",
         lambda _env_file: calls.append("daily"),
     )
     monkeypatch.setattr(
-        "telegram_bot.handlers.run_since_last_sent_with_telegram",
+        "cock_monitor.platform.telegram.dispatch.run_since_last_sent_with_telegram",
         lambda _env_file: calls.append("since-last"),
     )
 
@@ -67,7 +75,7 @@ def test_vless_delta_since_last_mode_by_flag(
         allowed_chat_id="1",
         client=client,
         status_provider=object(),  # type: ignore[arg-type]
-        env_file=tmp_path / "env",
+        env_file=env_file,
         mtproxy_cfg=None,
     )
 
@@ -75,17 +83,19 @@ def test_vless_delta_since_last_mode_by_flag(
     assert not client.messages
 
 
-def test_vless_delta_unknown_flag_returns_usage(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr("telegram_bot.handlers.run_with_timeout", lambda fn, _timeout: fn())
+def test_vless_delta_unknown_flag_returns_usage(tmp_path: Path, monkeypatch) -> None:
+    env_file = tmp_path / "env"
+    _write_env(env_file)
     monkeypatch.setattr(
-        "telegram_bot.handlers.run_daily_with_telegram",
+        "cock_monitor.platform.telegram.dispatch.run_with_timeout",
+        lambda fn, _timeout: fn(),
+    )
+    monkeypatch.setattr(
+        "cock_monitor.platform.telegram.dispatch.run_daily_with_telegram",
         lambda _env_file: None,
     )
     monkeypatch.setattr(
-        "telegram_bot.handlers.run_since_last_sent_with_telegram",
+        "cock_monitor.platform.telegram.dispatch.run_since_last_sent_with_telegram",
         lambda _env_file: None,
     )
 
@@ -95,7 +105,7 @@ def test_vless_delta_unknown_flag_returns_usage(
         allowed_chat_id="1",
         client=client,
         status_provider=object(),  # type: ignore[arg-type]
-        env_file=tmp_path / "env",
+        env_file=env_file,
         mtproxy_cfg=None,
     )
 

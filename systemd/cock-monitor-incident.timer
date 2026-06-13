@@ -1,0 +1,11 @@
+[Unit]
+Description=Run cock-monitor incident sampler every 2 minutes
+Documentation=file:///opt/cock-monitor/README.md
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+Unit=cock-monitor-incident.service
+
+[Install]
+WantedBy=timers.target

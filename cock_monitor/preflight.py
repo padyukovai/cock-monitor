@@ -10,6 +10,14 @@ from pathlib import Path
 
 from cock_monitor.config_loader import load_config
 from cock_monitor.defaults import DEFAULT_ENV_FILE
+from cock_monitor.platform.registry import get_registry, module_enabled, parse_enabled_modules
+
+
+def parse_enabled_modules_safe(env: dict[str, str]) -> list[str]:
+    try:
+        return parse_enabled_modules(env)
+    except ValueError:
+        return ["core"]
 
 
 def _to_bool(raw: str | None, default: bool = False) -> bool:
@@ -80,38 +88,28 @@ def run_preflight(
             lines.append("ERROR: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set together")
             ok = False
 
-        if _to_bool(env.get("MTPROXY_ENABLE")):
-            for name in ("ss", "iptables", "pgrep"):
+        enabled = parse_enabled_modules_safe(env)
+        lines.append(f"ok: ENABLED_MODULES={','.join(enabled)}")
+
+        registry = get_registry()
+        for spec in registry.enabled_specs(env):
+            for name in spec.required_tools:
                 text, step_ok = _check_tool(name, required=True)
                 lines.append(text)
                 ok = ok and step_ok
 
-        xui = env.get("XUI_DB_PATH", "").strip()
-        if xui:
-            p = Path(xui).expanduser()
-            if not p.is_file():
-                lines.append(f"ERROR: XUI_DB_PATH not a file: {p}")
-                ok = False
-            elif not os.access(p, os.R_OK):
-                lines.append(f"ERROR: XUI_DB_PATH not readable: {p}")
-                ok = False
-            else:
-                lines.append(f"ok: XUI_DB_PATH readable: {p}")
-
-        if _to_bool(env.get("INCIDENT_SAMPLER_ENABLE")):
-            for name in ("ping", "timeout", "getent", "ss"):
-                text, step_ok = _check_tool(name, required=True)
-                lines.append(text)
-                ok = ok and step_ok
-            units_raw = env.get("INCIDENT_SYSTEMD_UNITS", "").strip()
-            if units_raw:
-                text, step_ok = _check_tool("systemctl", required=True)
-                lines.append(text)
-                ok = ok and step_ok
-            if env.get("INCIDENT_TCP_PROBE_PORTS", "").strip():
-                text, step_ok = _check_tool("ip", required=True)
-                lines.append(text)
-                ok = ok and step_ok
+        if module_enabled("vless", env):
+            xui = env.get("XUI_DB_PATH", "").strip()
+            if xui:
+                p = Path(xui).expanduser()
+                if not p.is_file():
+                    lines.append(f"ERROR: XUI_DB_PATH not a file: {p}")
+                    ok = False
+                elif not os.access(p, os.R_OK):
+                    lines.append(f"ERROR: XUI_DB_PATH not readable: {p}")
+                    ok = False
+                else:
+                    lines.append(f"ok: XUI_DB_PATH readable: {p}")
 
         burst_access = env.get("BURST_ACCESS_LOG_PATH", "").strip()
         if burst_access:
@@ -127,13 +125,7 @@ def run_preflight(
             text, _ = _check_tool("pgrep", required=False)
             lines.append(text)
 
-        if _to_bool(env.get("SHAPER_ENABLE")):
-            for name in ("tc", "ip"):
-                text, step_ok = _check_tool(name, required=True)
-                lines.append(text)
-                ok = ok and step_ok
-
-        want_matplotlib = _to_bool(env.get("MTPROXY_ENABLE")) or bool(env.get("METRICS_DB", "").strip())
+        want_matplotlib = module_enabled("core", env) or module_enabled("mtproxy", env)
         if want_matplotlib:
             try:
                 import matplotlib  # noqa: F401

@@ -6,7 +6,6 @@ import argparse
 import os
 import shutil
 import subprocess
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path

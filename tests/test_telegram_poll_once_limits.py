@@ -38,11 +38,10 @@ def test_poll_once_stops_by_max_updates(
                 return batch
             return []
 
-    monkeypatch.setattr("telegram_bot.poll_once.TelegramClient", _Client)
-    monkeypatch.setattr("telegram_bot.poll_once.read_offset", lambda _p: 1)
-    monkeypatch.setattr("telegram_bot.poll_once.write_offset", lambda _p, off: written_offsets.append(off))
-    monkeypatch.setattr("telegram_bot.poll_once.PythonStatusProvider", lambda **_k: object())
-    monkeypatch.setattr("telegram_bot.poll_once.handle_update", lambda u, **_k: seen.append(int(u["update_id"])))
+    monkeypatch.setattr("cock_monitor.platform.telegram.poll_once.TelegramClient", _Client)
+    monkeypatch.setattr("cock_monitor.platform.telegram.poll_once.read_offset", lambda _p: 1)
+    monkeypatch.setattr("cock_monitor.platform.telegram.poll_once.write_offset", lambda _p, off: written_offsets.append(off))
+    monkeypatch.setattr("cock_monitor.platform.telegram.poll_once.handle_update", lambda u, **_k: seen.append(int(u["update_id"])))
 
     poll_once(_cfg(tmp_path, max_updates=3, max_seconds=999))
 
@@ -68,12 +67,11 @@ def test_poll_once_stops_by_max_seconds(
         def get_updates(self, _offset: int, timeout: int = 0):  # noqa: ARG002
             return list(updates)
 
-    monkeypatch.setattr("telegram_bot.poll_once.TelegramClient", _Client)
-    monkeypatch.setattr("telegram_bot.poll_once.read_offset", lambda _p: 1)
-    monkeypatch.setattr("telegram_bot.poll_once.write_offset", lambda _p, off: written_offsets.append(off))
-    monkeypatch.setattr("telegram_bot.poll_once.PythonStatusProvider", lambda **_k: object())
-    monkeypatch.setattr("telegram_bot.poll_once.handle_update", lambda u, **_k: seen.append(int(u["update_id"])))
-    monkeypatch.setattr("telegram_bot.poll_once.time.monotonic", lambda: next(times))
+    monkeypatch.setattr("cock_monitor.platform.telegram.poll_once.TelegramClient", _Client)
+    monkeypatch.setattr("cock_monitor.platform.telegram.poll_once.read_offset", lambda _p: 1)
+    monkeypatch.setattr("cock_monitor.platform.telegram.poll_once.write_offset", lambda _p, off: written_offsets.append(off))
+    monkeypatch.setattr("cock_monitor.platform.telegram.poll_once.handle_update", lambda u, **_k: seen.append(int(u["update_id"])))
+    monkeypatch.setattr("cock_monitor.platform.telegram.poll_once.time.monotonic", lambda: next(times))
 
     poll_once(_cfg(tmp_path, max_updates=100, max_seconds=2))
 
@@ -96,13 +94,12 @@ def test_poll_once_sets_menu_commands_with_mtproxy_disabled(
         def get_updates(self, _offset: int, timeout: int = 0):  # noqa: ARG002
             return []
 
-    monkeypatch.setattr("telegram_bot.poll_once.TelegramClient", _Client)
-    monkeypatch.setattr("telegram_bot.poll_once.read_offset", lambda _p: 1)
-    monkeypatch.setattr("telegram_bot.poll_once.PythonStatusProvider", lambda **_k: object())
+    monkeypatch.setattr("cock_monitor.platform.telegram.poll_once.TelegramClient", _Client)
+    monkeypatch.setattr("cock_monitor.platform.telegram.poll_once.read_offset", lambda _p: 1)
 
     poll_once(_cfg(tmp_path, max_updates=3, max_seconds=999))
 
     assert captured
-    assert ("status", "Full conntrack status") in captured[0]
-    assert ("help", "Show command help") in captured[0]
+    assert ("status", "Full host + conntrack status") in captured[0]
+    assert ("help", "Show enabled module commands") in captured[0]
     assert not any(name.startswith("mt_") for name, _ in captured[0])

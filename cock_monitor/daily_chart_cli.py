@@ -6,10 +6,9 @@ import os
 import sys
 from pathlib import Path
 
-from telegram_bot.telegram_client import TelegramClient
-
 from cock_monitor.config_loader import load_config
 from cock_monitor.env import merge_env_into_process
+from cock_monitor.platform.telegram.client import TelegramClient
 from cock_monitor.services.daily_chart import run_daily_chart
 
 

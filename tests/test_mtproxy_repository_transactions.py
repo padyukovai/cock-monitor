@@ -52,7 +52,7 @@ def test_atomic_collect_store_alert_happy_path(monkeypatch: pytest.MonkeyPatch) 
 
     conn = sqlite3.connect(":memory:")
     init_schema(conn)
-    monkeypatch.setattr(repo, "collect_iptables_bytes", lambda _port: (100, 200))
+    monkeypatch.setattr("cock_monitor.modules.mtproxy.repository.collect_iptables_bytes", lambda _port: (100, 200))
 
     with scenario_transaction(conn):
         traffic = collect_traffic(conn, 443)
@@ -79,7 +79,7 @@ def test_atomic_collect_store_rolls_back_on_failure(monkeypatch: pytest.MonkeyPa
 
     conn = sqlite3.connect(":memory:")
     init_schema(conn)
-    monkeypatch.setattr(repo, "collect_iptables_bytes", lambda _port: (150, 250))
+    monkeypatch.setattr("cock_monitor.modules.mtproxy.repository.collect_iptables_bytes", lambda _port: (150, 250))
 
     with pytest.raises(RuntimeError, match="boom"):
         with scenario_transaction(conn):

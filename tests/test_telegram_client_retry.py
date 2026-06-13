@@ -41,8 +41,8 @@ def test_send_message_retries_transient_http_then_succeeds(monkeypatch: pytest.M
         return _FakeResponse({"ok": True, "result": {}})
 
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
-    monkeypatch.setattr("telegram_bot.telegram_client.time.sleep", lambda _x: None)
-    monkeypatch.setattr("telegram_bot.telegram_client.random.uniform", lambda _a, _b: 0.0)
+    monkeypatch.setattr("cock_monitor.platform.telegram.telegram_client.time.sleep", lambda _x: None)
+    monkeypatch.setattr("cock_monitor.platform.telegram.telegram_client.random.uniform", lambda _a, _b: 0.0)
 
     result = client.send_message_with_result("chat", "hello")
 
@@ -66,8 +66,8 @@ def test_send_message_does_not_retry_non_transient_http(monkeypatch: pytest.Monk
         )
 
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
-    monkeypatch.setattr("telegram_bot.telegram_client.time.sleep", lambda _x: None)
-    monkeypatch.setattr("telegram_bot.telegram_client.random.uniform", lambda _a, _b: 0.0)
+    monkeypatch.setattr("cock_monitor.platform.telegram.telegram_client.time.sleep", lambda _x: None)
+    monkeypatch.setattr("cock_monitor.platform.telegram.telegram_client.random.uniform", lambda _a, _b: 0.0)
 
     result = client.send_message_with_result("chat", "hello")
 
@@ -91,8 +91,8 @@ def test_send_message_retry_exhausted_transient(monkeypatch: pytest.MonkeyPatch)
         )
 
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
-    monkeypatch.setattr("telegram_bot.telegram_client.time.sleep", lambda _x: None)
-    monkeypatch.setattr("telegram_bot.telegram_client.random.uniform", lambda _a, _b: 0.0)
+    monkeypatch.setattr("cock_monitor.platform.telegram.telegram_client.time.sleep", lambda _x: None)
+    monkeypatch.setattr("cock_monitor.platform.telegram.telegram_client.random.uniform", lambda _a, _b: 0.0)
 
     result = client.send_message_with_result("chat", "hello")
 
