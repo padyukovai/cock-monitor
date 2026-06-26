@@ -57,17 +57,58 @@ def _retry_with_backoff(
     raise last_exc
 
 
+def _socks_proxy_kind(scheme: str) -> int:
+    import socks
+
+    if scheme in ("socks5", "socks5h"):
+        return socks.SOCKS5
+    if scheme in ("socks4", "socks4a"):
+        return socks.SOCKS4
+    raise TelegramRequestError(
+        f"TELEGRAM_PROXY_URL scheme not supported: {scheme!r}",
+        transient=False,
+    )
+
+
 def _build_opener(proxy_url: str | None) -> urllib.request.OpenerDirector:
     if not proxy_url:
         return urllib.request.build_opener()
-    scheme = urllib.parse.urlparse(proxy_url).scheme.lower()
-    if scheme not in ("http", "https"):
-        raise TelegramRequestError(
-            f"TELEGRAM_PROXY_URL must be http:// or https:// (got {scheme!r})",
-            transient=False,
+    parsed = urllib.parse.urlparse(proxy_url)
+    scheme = parsed.scheme.lower()
+    if scheme in ("http", "https"):
+        handler = urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
+        return urllib.request.build_opener(handler)
+    if scheme in ("socks5", "socks5h", "socks4", "socks4a"):
+        try:
+            from sockshandler import SocksiPyHandler
+        except ImportError as e:
+            raise TelegramRequestError(
+                "TELEGRAM_PROXY_URL uses SOCKS; install PySocks (pip install PySocks)",
+                transient=False,
+            ) from e
+        host = parsed.hostname
+        if not host:
+            raise TelegramRequestError(
+                f"TELEGRAM_PROXY_URL missing host: {proxy_url!r}",
+                transient=False,
+            )
+        port = parsed.port or 1080
+        username = parsed.username
+        password = parsed.password
+        rdns = scheme in ("socks5h", "socks4a")
+        handler = SocksiPyHandler(
+            _socks_proxy_kind(scheme),
+            host,
+            port,
+            username=username,
+            password=password,
+            rdns=rdns,
         )
-    handler = urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
-    return urllib.request.build_opener(handler)
+        return urllib.request.build_opener(handler)
+    raise TelegramRequestError(
+        f"TELEGRAM_PROXY_URL must be http(s) or socks (got {scheme!r})",
+        transient=False,
+    )
 
 
 def telegram_client_from_env(raw: dict[str, str]) -> TelegramClient:
