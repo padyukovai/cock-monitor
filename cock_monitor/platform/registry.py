@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-MODULE_IDS = frozenset({"core", "vless", "mtproxy", "wg", "incident", "shaper"})
+MODULE_IDS = frozenset({"core", "vless", "mtproxy", "wg", "incident", "shaper", "hop"})
 
 
 @dataclass(frozen=True)
@@ -123,6 +123,7 @@ _registry: ModuleRegistry | None = None
 
 def _register_all(registry: ModuleRegistry) -> None:
     from cock_monitor.modules.core import register as register_core
+    from cock_monitor.modules.hop import register as register_hop
     from cock_monitor.modules.incident import register as register_incident
     from cock_monitor.modules.mtproxy import register as register_mtproxy
     from cock_monitor.modules.shaper import register as register_shaper
@@ -135,6 +136,7 @@ def _register_all(registry: ModuleRegistry) -> None:
     register_wg(registry)
     register_incident(registry)
     register_shaper(registry)
+    register_hop(registry)
 
 
 def get_registry() -> ModuleRegistry:

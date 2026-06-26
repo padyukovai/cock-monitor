@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pytest
+from cock_monitor.adapters import hop_links as hop
 from cock_monitor.services import incident_sampler as ismp
 from telegram_bot.telegram_client import DeliveryResult
 
@@ -40,23 +41,23 @@ def test_compute_level_conntrack_crit() -> None:
 
 
 def test_parse_hop_link_spec() -> None:
-    assert ismp.parse_hop_link_spec("germany:dst:144.31.154.44:10089") == {
+    assert hop.parse_hop_link_spec("germany:dst:144.31.154.44:10089") == {
         "name": "germany",
         "mode": "dst",
         "host": "144.31.154.44",
         "port": 10089,
     }
-    assert ismp.parse_hop_link_spec("rf3-de:sport::10089") == {
+    assert hop.parse_hop_link_spec("rf3-de:sport::10089") == {
         "name": "rf3-de",
         "mode": "sport",
         "host": "",
         "port": 10089,
     }
-    assert ismp.parse_hop_link_spec("bad:spec") is None
+    assert hop.parse_hop_link_spec("bad:spec") is None
 
 
 def test_parse_hop_links_env() -> None:
-    links = ismp.parse_hop_links_env(
+    links = hop.parse_hop_links_env(
         "germany:dst:144.31.154.44:10089,usa:dst:153.75.246.28:10090"
     )
     assert len(links) == 2

@@ -10,6 +10,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+from cock_monitor.adapters.hop_links import (
+    collect_hop_links as collect_hop_links_raw,
+    parse_hop_link_spec,
+    parse_hop_links_env,
+)
 from cock_monitor.adapters.linux_host import (
     parse_ss_state_line_counts,
     read_conntrack_fill,
@@ -411,102 +416,11 @@ def collect_tcp_states() -> dict[str, int]:
     return states
 
 
-def parse_hop_link_spec(spec: str) -> dict[str, Any] | None:
-    """Parse hop link spec: name:dst:host:port or name:sport::port."""
-    raw = spec.strip()
-    if not raw:
-        return None
-    parts = raw.split(":")
-    if len(parts) == 4 and parts[1] == "dst":
-        name, _, host, port_s = parts
-        if not name or not host:
-            return None
-        try:
-            port = int(port_s)
-        except ValueError:
-            return None
-        return {"name": name, "mode": "dst", "host": host, "port": port}
-    if len(parts) == 4 and parts[1] == "sport":
-        name, _, _host, port_s = parts
-        if not name:
-            return None
-        try:
-            port = int(port_s)
-        except ValueError:
-            return None
-        return {"name": name, "mode": "sport", "host": "", "port": port}
-    return None
-
-
-def parse_hop_links_env(raw: str) -> list[dict[str, Any]]:
-    links: list[dict[str, Any]] = []
-    for chunk in raw.replace("\n", ",").split(","):
-        spec = parse_hop_link_spec(chunk)
-        if spec is not None:
-            links.append(spec)
-    return links
-
-
-def _hop_ss_args(link: dict[str, Any]) -> list[str]:
-    mode = str(link.get("mode", ""))
-    port = int(link.get("port", 0) or 0)
-    if mode == "dst":
-        host = str(link.get("host", "")).strip()
-        return ["ss", "-Htan", f"dst {host}:{port}"]
-    if mode == "sport":
-        return ["ss", "-Htan", f"sport = :{port}"]
-    return []
-
-
 def collect_hop_links() -> dict[str, Any]:
     raw = os.environ.get("INCIDENT_HOP_LINKS", "").strip()
-    specs = parse_hop_links_env(raw)
-    if not specs:
-        return {"enabled": 0, "links": []}
-
-    links: list[dict[str, Any]] = []
-    for spec in specs:
-        args = _hop_ss_args(spec)
-        states = {
-            "estab": 0,
-            "syn_recv": 0,
-            "time_wait": 0,
-            "fin_wait": 0,
-            "close_wait": 0,
-        }
-        error = ""
-        if not args:
-            error = "invalid_spec"
-        else:
-            try:
-                out = subprocess.run(
-                    args,
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    check=False,
-                )
-                if out.returncode != 0:
-                    error = f"ss_rc_{out.returncode}"
-                elif out.stdout:
-                    states = parse_ss_state_line_counts(out.stdout)
-            except (OSError, subprocess.SubprocessError) as e:
-                error = f"ss_failed_{getattr(e, 'errno', -1)}"
-        links.append(
-            {
-                "name": spec["name"],
-                "mode": spec["mode"],
-                "host": spec.get("host", ""),
-                "port": spec["port"],
-                "estab": states["estab"],
-                "syn_recv": states["syn_recv"],
-                "time_wait": states["time_wait"],
-                "fin_wait": states["fin_wait"],
-                "close_wait": states["close_wait"],
-                "error": error,
-            }
-        )
-    return {"enabled": 1, "links": links}
+    if not raw:
+        raw = os.environ.get("HOP_LINKS", "").strip()
+    return collect_hop_links_raw(raw)
 
 
 def collect_units() -> dict[str, str]:

@@ -13,7 +13,7 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y python3 python3-venv python3-pip curl sqlite3 conntrack python3-matplotlib wireguard-tools
+apt-get install -y python3 python3-venv python3-pip curl sqlite3 conntrack python3-matplotlib wireguard-tools iputils-ping
 
 if [[ ! -x "${REPO_ROOT}/.venv/bin/python" ]]; then
   python3 -m venv "${REPO_ROOT}/.venv"

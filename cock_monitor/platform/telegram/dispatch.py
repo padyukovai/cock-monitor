@@ -210,6 +210,14 @@ def handle_update(
             client.send_message(chat_id, truncate_for_telegram(body))
         return
 
+    if cmd == "/hop_status" and module_enabled("hop", raw_env):
+        from cock_monitor.modules.hop.service import hop_status_text
+
+        ok, body = _run_command_with_timeout(client, chat_id, "hop_status", lambda: hop_status_text(env_file))
+        if ok and isinstance(body, str):
+            client.send_message(chat_id, truncate_for_telegram(body))
+        return
+
     if cmd.startswith("/mt_") and module_enabled("mtproxy", raw_env):
         mt_cfg = MtproxyConfig.from_env_map(raw_env)
         _handle_mtproxy(client, chat_id, cmd, text, mt_cfg)

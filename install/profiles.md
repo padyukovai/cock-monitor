@@ -36,6 +36,7 @@ RF3 example (hop link monitoring to Germany / USA exits):
 
 ```bash
 sudo bash install/install.sh --profile stack-rf3 --token '...' --chat-id '...' --wipe-data
+sudo bash install/rf3/setup-hop-probe.sh   # optional: SOCKS probe + TELEGRAM_PROXY_URL
 ```
 
 On Germany (optional hop inbound monitoring), add to `/etc/cock-monitor.env`:

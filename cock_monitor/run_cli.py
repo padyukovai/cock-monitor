@@ -44,6 +44,12 @@ def _run_shaper(env_file: Path, *, dry_run: bool) -> int:
     return subprocess.run(args, check=False).returncode
 
 
+def _run_hop(env_file: Path, *, dry_run: bool) -> int:
+    from cock_monitor.modules.hop.service import run_hop_collect
+
+    return run_hop_collect(env_file, dry_run=dry_run)
+
+
 def _run_core_daily(env_file: Path) -> int:
     import os
     import tempfile
@@ -77,6 +83,7 @@ _MODULE_RUNNERS = {
     "vless": lambda env, dry: _run_vless(env),
     "incident": lambda env, dry: _run_incident(env),
     "shaper": lambda env, dry: _run_shaper(env, dry_run=dry),
+    "hop": lambda env, dry: _run_hop(env, dry_run=dry),
 }
 
 

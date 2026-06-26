@@ -47,6 +47,8 @@ V2_UNITS = [
     "cock-monitor-incident.timer",
     "cock-monitor-shaper.service",
     "cock-monitor-shaper.timer",
+    "cock-monitor-hop.service",
+    "cock-monitor-hop.timer",
 ]
 
 
