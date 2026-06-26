@@ -9,6 +9,7 @@
 | Helsinki | `cock-helsinki` | `stack-3xui` |
 | RF1 | `whitelisthack` | `stack-rf1` |
 | RF2 | `rf2` | `stack-rf2-wg` |
+| RF3 | `cock-rf3` | `stack-rf3` |
 
 ## Clean redeploy (breaking v2)
 
@@ -29,6 +30,20 @@ RF2 example:
 
 ```bash
 sudo bash install/install.sh --profile stack-rf2-wg --token '...' --chat-id '...' --wipe-data
+```
+
+RF3 example (hop link monitoring to Germany / USA exits):
+
+```bash
+sudo bash install/install.sh --profile stack-rf3 --token '...' --chat-id '...' --wipe-data
+```
+
+On Germany (optional hop inbound monitoring), add to `/etc/cock-monitor.env`:
+
+```bash
+INCIDENT_HOP_LINKS=rf3-de:sport::10089
+INCIDENT_HOP_ESTAB_WARN=5
+INCIDENT_HOP_FIN_WAIT_WARN=20
 ```
 
 Verify:

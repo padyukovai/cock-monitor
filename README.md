@@ -23,7 +23,7 @@ sudo bash install/install.sh --profile stack-3xui --token '...' --chat-id '...' 
 sudo bash install/install.sh --profile core --token 'BOT_TOKEN' --chat-id 'CHAT_ID' --wipe-data
 ```
 
-Профили: `core`, `stack-3xui`, `stack-mtproxy`, `stack-rf2-wg`, `stack-rf1` — см. [install/profiles.md](install/profiles.md).
+Профили: `core`, `stack-3xui`, `stack-mtproxy`, `stack-rf2-wg`, `stack-rf1`, `stack-rf3` — см. [install/profiles.md](install/profiles.md).
 
 Удаление (legacy + v2 units):
 

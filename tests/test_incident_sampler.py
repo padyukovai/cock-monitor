@@ -39,6 +39,148 @@ def test_compute_level_conntrack_crit() -> None:
     )
 
 
+def test_parse_hop_link_spec() -> None:
+    assert ismp.parse_hop_link_spec("germany:dst:144.31.154.44:10089") == {
+        "name": "germany",
+        "mode": "dst",
+        "host": "144.31.154.44",
+        "port": 10089,
+    }
+    assert ismp.parse_hop_link_spec("rf3-de:sport::10089") == {
+        "name": "rf3-de",
+        "mode": "sport",
+        "host": "",
+        "port": 10089,
+    }
+    assert ismp.parse_hop_link_spec("bad:spec") is None
+
+
+def test_parse_hop_links_env() -> None:
+    links = ismp.parse_hop_links_env(
+        "germany:dst:144.31.154.44:10089,usa:dst:153.75.246.28:10090"
+    )
+    assert len(links) == 2
+    assert links[0]["name"] == "germany"
+    assert links[1]["port"] == 10090
+
+
+def test_compute_level_hop_fin_wait_warn() -> None:
+    assert (
+        ismp.compute_level(
+            fill_pct=0,
+            conn_warn=85,
+            conn_crit=95,
+            ping_max_loss=0,
+            ping_loss_warn=20,
+            dns_fail_streak=0,
+            dns_streak_warn=3,
+            tcp_enabled=0,
+            tcp_fails=0,
+            tcp_warn_fail=1,
+            tcp_crit_fail=0,
+            hop_links=[{"name": "germany", "estab": 1, "fin_wait": 25}],
+            hop_estab_warn=5,
+            hop_estab_crit=20,
+            hop_fin_wait_warn=20,
+            hop_fin_wait_crit=50,
+        )
+        == "WARN"
+    )
+
+
+def test_compute_level_hop_estab_crit() -> None:
+    assert (
+        ismp.compute_level(
+            fill_pct=0,
+            conn_warn=85,
+            conn_crit=95,
+            ping_max_loss=0,
+            ping_loss_warn=20,
+            dns_fail_streak=0,
+            dns_streak_warn=3,
+            tcp_enabled=0,
+            tcp_fails=0,
+            tcp_warn_fail=1,
+            tcp_crit_fail=0,
+            hop_links=[{"name": "germany", "estab": 30, "fin_wait": 0}],
+            hop_estab_warn=5,
+            hop_estab_crit=20,
+            hop_fin_wait_warn=20,
+            hop_fin_wait_crit=50,
+        )
+        == "CRIT"
+    )
+
+
+def test_compute_level_hop_error_warn() -> None:
+    assert (
+        ismp.compute_level(
+            fill_pct=0,
+            conn_warn=85,
+            conn_crit=95,
+            ping_max_loss=0,
+            ping_loss_warn=20,
+            dns_fail_streak=0,
+            dns_streak_warn=3,
+            tcp_enabled=0,
+            tcp_fails=0,
+            tcp_warn_fail=1,
+            tcp_crit_fail=0,
+            hop_links=[{"name": "germany", "estab": 0, "fin_wait": 0, "error": "ss_rc_1"}],
+            hop_estab_warn=5,
+            hop_estab_crit=20,
+            hop_fin_wait_warn=20,
+            hop_fin_wait_crit=50,
+        )
+        == "WARN"
+    )
+
+
+def test_compute_level_hop_error_does_not_mask_crit() -> None:
+    assert (
+        ismp.compute_level(
+            fill_pct=0,
+            conn_warn=85,
+            conn_crit=95,
+            ping_max_loss=0,
+            ping_loss_warn=20,
+            dns_fail_streak=0,
+            dns_streak_warn=3,
+            tcp_enabled=0,
+            tcp_fails=0,
+            tcp_warn_fail=1,
+            tcp_crit_fail=0,
+            hop_links=[{"name": "germany", "estab": 30, "fin_wait": 0, "error": "ss_rc_1"}],
+            hop_estab_warn=5,
+            hop_estab_crit=20,
+            hop_fin_wait_warn=20,
+            hop_fin_wait_crit=50,
+        )
+        == "CRIT"
+    )
+
+
+def test_compute_level_tcp_fin_wait_warn() -> None:
+    assert (
+        ismp.compute_level(
+            fill_pct=0,
+            conn_warn=85,
+            conn_crit=95,
+            ping_max_loss=0,
+            ping_loss_warn=20,
+            dns_fail_streak=0,
+            dns_streak_warn=3,
+            tcp_enabled=0,
+            tcp_fails=0,
+            tcp_warn_fail=1,
+            tcp_crit_fail=0,
+            tcp_fin_wait=60,
+            tcp_fin_wait_warn=50,
+        )
+        == "WARN"
+    )
+
+
 def test_safe_pct_import() -> None:
     from cock_monitor.adapters.linux_host import safe_pct
 

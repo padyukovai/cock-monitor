@@ -11,10 +11,11 @@ from pathlib import Path
 from typing import Any
 
 from cock_monitor.adapters.linux_host import (
-    parse_ss_tan_state_counts,
+    parse_ss_state_line_counts,
     read_conntrack_fill,
     read_hostname_fqdn,
     read_load_mem_from_proc,
+    read_sockstat_tcp,
 )
 from cock_monitor.config_loader import load_config
 from cock_monitor.platform.telegram.client import DeliveryResult, TelegramClient
@@ -59,6 +60,16 @@ def apply_incident_defaults() -> None:
     os.environ.setdefault("INCIDENT_TCP_PROBE_TIMEOUT_SEC", "2")
     os.environ.setdefault("INCIDENT_TCP_PROBE_WARN_FAILS", "1")
     os.environ.setdefault("INCIDENT_TCP_PROBE_CRIT_FAILS", "0")
+
+    os.environ.setdefault("INCIDENT_TCP_FIN_WAIT_WARN", "0")
+    os.environ.setdefault("INCIDENT_TCP_CLOSE_WAIT_WARN", "0")
+    os.environ.setdefault("INCIDENT_TCP_ORPHAN_WARN", "0")
+
+    os.environ.setdefault("INCIDENT_HOP_LINKS", "")
+    os.environ.setdefault("INCIDENT_HOP_ESTAB_WARN", "5")
+    os.environ.setdefault("INCIDENT_HOP_ESTAB_CRIT", "20")
+    os.environ.setdefault("INCIDENT_HOP_FIN_WAIT_WARN", "20")
+    os.environ.setdefault("INCIDENT_HOP_FIN_WAIT_CRIT", "50")
 
     os.environ.setdefault("INCIDENT_DNS_HOST", "api.telegram.org")
     os.environ.setdefault("INCIDENT_DNS_TIMEOUT_SEC", "2")
@@ -373,7 +384,16 @@ def collect_tcp_probes() -> dict[str, Any]:
     }
 
 
-def collect_ss() -> tuple[int, int, int]:
+def collect_tcp_states() -> dict[str, int]:
+    """Global TCP states from ss -tan plus orphan from sockstat."""
+    states = {
+        "estab": 0,
+        "syn_recv": 0,
+        "time_wait": 0,
+        "fin_wait": 0,
+        "close_wait": 0,
+        "orphan": 0,
+    }
     try:
         out = subprocess.run(
             ["ss", "-tan"],
@@ -382,9 +402,111 @@ def collect_ss() -> tuple[int, int, int]:
             timeout=10,
             check=False,
         )
-        return parse_ss_tan_state_counts(out.stdout or "")
+        parsed = parse_ss_state_line_counts(out.stdout or "")
+        states.update(parsed)
     except (OSError, subprocess.SubprocessError):
-        return 0, 0, 0
+        pass
+    sock = read_sockstat_tcp()
+    states["orphan"] = sock.get("orphan", 0)
+    return states
+
+
+def parse_hop_link_spec(spec: str) -> dict[str, Any] | None:
+    """Parse hop link spec: name:dst:host:port or name:sport::port."""
+    raw = spec.strip()
+    if not raw:
+        return None
+    parts = raw.split(":")
+    if len(parts) == 4 and parts[1] == "dst":
+        name, _, host, port_s = parts
+        if not name or not host:
+            return None
+        try:
+            port = int(port_s)
+        except ValueError:
+            return None
+        return {"name": name, "mode": "dst", "host": host, "port": port}
+    if len(parts) == 4 and parts[1] == "sport":
+        name, _, _host, port_s = parts
+        if not name:
+            return None
+        try:
+            port = int(port_s)
+        except ValueError:
+            return None
+        return {"name": name, "mode": "sport", "host": "", "port": port}
+    return None
+
+
+def parse_hop_links_env(raw: str) -> list[dict[str, Any]]:
+    links: list[dict[str, Any]] = []
+    for chunk in raw.replace("\n", ",").split(","):
+        spec = parse_hop_link_spec(chunk)
+        if spec is not None:
+            links.append(spec)
+    return links
+
+
+def _hop_ss_args(link: dict[str, Any]) -> list[str]:
+    mode = str(link.get("mode", ""))
+    port = int(link.get("port", 0) or 0)
+    if mode == "dst":
+        host = str(link.get("host", "")).strip()
+        return ["ss", "-Htan", f"dst {host}:{port}"]
+    if mode == "sport":
+        return ["ss", "-Htan", f"sport = :{port}"]
+    return []
+
+
+def collect_hop_links() -> dict[str, Any]:
+    raw = os.environ.get("INCIDENT_HOP_LINKS", "").strip()
+    specs = parse_hop_links_env(raw)
+    if not specs:
+        return {"enabled": 0, "links": []}
+
+    links: list[dict[str, Any]] = []
+    for spec in specs:
+        args = _hop_ss_args(spec)
+        states = {
+            "estab": 0,
+            "syn_recv": 0,
+            "time_wait": 0,
+            "fin_wait": 0,
+            "close_wait": 0,
+        }
+        error = ""
+        if not args:
+            error = "invalid_spec"
+        else:
+            try:
+                out = subprocess.run(
+                    args,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+                if out.returncode != 0:
+                    error = f"ss_rc_{out.returncode}"
+                elif out.stdout:
+                    states = parse_ss_state_line_counts(out.stdout)
+            except (OSError, subprocess.SubprocessError) as e:
+                error = f"ss_failed_{getattr(e, 'errno', -1)}"
+        links.append(
+            {
+                "name": spec["name"],
+                "mode": spec["mode"],
+                "host": spec.get("host", ""),
+                "port": spec["port"],
+                "estab": states["estab"],
+                "syn_recv": states["syn_recv"],
+                "time_wait": states["time_wait"],
+                "fin_wait": states["fin_wait"],
+                "close_wait": states["close_wait"],
+                "error": error,
+            }
+        )
+    return {"enabled": 1, "links": links}
 
 
 def collect_units() -> dict[str, str]:
@@ -483,19 +605,55 @@ def compute_level(
     tcp_fails: int,
     tcp_warn_fail: int,
     tcp_crit_fail: int,
+    tcp_fin_wait: int = 0,
+    tcp_fin_wait_warn: int = 0,
+    tcp_close_wait: int = 0,
+    tcp_close_wait_warn: int = 0,
+    tcp_orphan: int = 0,
+    tcp_orphan_warn: int = 0,
+    hop_links: list[dict[str, Any]] | None = None,
+    hop_estab_warn: int = 0,
+    hop_estab_crit: int = 0,
+    hop_fin_wait_warn: int = 0,
+    hop_fin_wait_crit: int = 0,
 ) -> str:
     level = "OK"
     if fill_pct >= conn_crit:
         level = "CRIT"
     elif tcp_enabled == 1 and tcp_crit_fail > 0 and tcp_fails >= tcp_crit_fail:
         level = "CRIT"
-    elif (
-        fill_pct >= conn_warn
-        or ping_max_loss >= ping_loss_warn
-        or dns_fail_streak >= dns_streak_warn
-        or (tcp_enabled == 1 and tcp_fails >= tcp_warn_fail)
-    ):
-        level = "WARN"
+    elif hop_links:
+        for link in hop_links:
+            estab = int(link.get("estab", 0) or 0)
+            fin_wait = int(link.get("fin_wait", 0) or 0)
+            if (hop_estab_crit > 0 and estab >= hop_estab_crit) or (
+                hop_fin_wait_crit > 0 and fin_wait >= hop_fin_wait_crit
+            ):
+                level = "CRIT"
+                break
+    if level != "CRIT":
+        if (
+            fill_pct >= conn_warn
+            or ping_max_loss >= ping_loss_warn
+            or dns_fail_streak >= dns_streak_warn
+            or (tcp_enabled == 1 and tcp_fails >= tcp_warn_fail)
+            or (tcp_fin_wait_warn > 0 and tcp_fin_wait >= tcp_fin_wait_warn)
+            or (tcp_close_wait_warn > 0 and tcp_close_wait >= tcp_close_wait_warn)
+            or (tcp_orphan_warn > 0 and tcp_orphan >= tcp_orphan_warn)
+        ):
+            level = "WARN"
+        elif hop_links:
+            for link in hop_links:
+                if str(link.get("error") or "").strip():
+                    level = "WARN"
+                    break
+                estab = int(link.get("estab", 0) or 0)
+                fin_wait = int(link.get("fin_wait", 0) or 0)
+                if (hop_estab_warn > 0 and estab >= hop_estab_warn) or (
+                    hop_fin_wait_warn > 0 and fin_wait >= hop_fin_wait_warn
+                ):
+                    level = "WARN"
+                    break
     return level
 
 
@@ -618,6 +776,10 @@ def build_json_line(
     tcp_estab: int,
     tcp_syn: int,
     tcp_tw: int,
+    tcp_fin_wait: int,
+    tcp_close_wait: int,
+    tcp_orphan: int,
+    hop_links: dict[str, Any],
     tcp_probe: dict[str, Any],
     load1: str,
     mem_kb: int,
@@ -653,7 +815,11 @@ def build_json_line(
             "estab": tcp_estab,
             "syn_recv": tcp_syn,
             "time_wait": tcp_tw,
+            "fin_wait": tcp_fin_wait,
+            "close_wait": tcp_close_wait,
+            "orphan": tcp_orphan,
         },
+        "hop_links": hop_links,
         "tcp_probe": tcp_probe,
         "load1": load_val,
         "mem_avail_kb": mem_kb,
@@ -707,7 +873,14 @@ def run_once() -> int:
     st["dns_fail_streak"] = str(dns_streak)
 
     ct_count, ct_max, ct_fill = collect_conntrack()
-    tcp_estab, tcp_syn, tcp_tw = collect_ss()
+    tcp_states = collect_tcp_states()
+    tcp_estab = tcp_states["estab"]
+    tcp_syn = tcp_states["syn_recv"]
+    tcp_tw = tcp_states["time_wait"]
+    tcp_fin_wait = tcp_states["fin_wait"]
+    tcp_close_wait = tcp_states["close_wait"]
+    tcp_orphan = tcp_states["orphan"]
+    hop_links = collect_hop_links()
     tcp_probe = collect_tcp_probes()
 
     load1, mem_kb = read_load_mem_from_proc()
@@ -732,6 +905,17 @@ def run_once() -> int:
         tcp_fails=tcp_fails,
         tcp_warn_fail=tcp_warn,
         tcp_crit_fail=tcp_crit,
+        tcp_fin_wait=tcp_fin_wait,
+        tcp_fin_wait_warn=_get_int("INCIDENT_TCP_FIN_WAIT_WARN", 0),
+        tcp_close_wait=tcp_close_wait,
+        tcp_close_wait_warn=_get_int("INCIDENT_TCP_CLOSE_WAIT_WARN", 0),
+        tcp_orphan=tcp_orphan,
+        tcp_orphan_warn=_get_int("INCIDENT_TCP_ORPHAN_WARN", 0),
+        hop_links=hop_links.get("links") if hop_links.get("enabled") else None,
+        hop_estab_warn=_get_int("INCIDENT_HOP_ESTAB_WARN", 5),
+        hop_estab_crit=_get_int("INCIDENT_HOP_ESTAB_CRIT", 20),
+        hop_fin_wait_warn=_get_int("INCIDENT_HOP_FIN_WAIT_WARN", 20),
+        hop_fin_wait_crit=_get_int("INCIDENT_HOP_FIN_WAIT_CRIT", 50),
     )
 
     line = build_json_line(
@@ -751,6 +935,10 @@ def run_once() -> int:
         tcp_estab=tcp_estab,
         tcp_syn=tcp_syn,
         tcp_tw=tcp_tw,
+        tcp_fin_wait=tcp_fin_wait,
+        tcp_close_wait=tcp_close_wait,
+        tcp_orphan=tcp_orphan,
+        hop_links=hop_links,
         tcp_probe=tcp_probe,
         load1=load1,
         mem_kb=mem_kb,
@@ -762,18 +950,34 @@ def run_once() -> int:
 
     incident_track_and_postmortem(old_level, level, now_ts, host, st, log_dir)
 
+    hop_lines = ""
+    if hop_links.get("enabled"):
+        parts = []
+        for link in hop_links.get("links", []):
+            err = str(link.get("error") or "").strip()
+            part = (
+                f"{link.get('name')} estab={link.get('estab')} fin_wait={link.get('fin_wait')} "
+                f"tw={link.get('time_wait')}"
+            )
+            if err:
+                part += f" err={err}"
+            parts.append(part)
+        hop_lines = "\nhop: " + "; ".join(parts)
+
     snap = (
         f"incident-sampler {level} on {host}\n"
         f"time: {ts_iso}\n"
         f"conntrack: {ct_count}/{ct_max} ({ct_fill}%)\n"
         f"ping max loss: {ping_max_loss}%\n"
         f"dns: ok={dns_ok} streak={dns_streak} err={dns_err}\n"
-        f"tcp: estab={tcp_estab} syn_recv={tcp_syn} tw={tcp_tw}\n"
+        f"tcp: estab={tcp_estab} syn_recv={tcp_syn} tw={tcp_tw} "
+        f"fin_wait={tcp_fin_wait} close_wait={tcp_close_wait} orphan={tcp_orphan}\n"
         f"tcp-probe all: {tcp_fails}/{tcp_total} failed\n"
         f"tcp-probe local: {tcp_probe['totals']['local']['fails']}/{tcp_probe['totals']['local']['total']} "
         f"target={tcp_probe['targets']['local']}\n"
         f"tcp-probe external: {tcp_probe['totals']['external']['fails']}/{tcp_probe['totals']['external']['total']} "
         f"target={tcp_probe['targets']['external']}"
+        f"{hop_lines}"
     )
     maybe_alert(now_ts, level, st, snapshot_text=snap)
 

@@ -34,6 +34,7 @@ Per-module defaults live in [`fragments/`](fragments/):
 | `stack-mtproxy` | core,mtproxy | MTProxy VPS |
 | `stack-rf2-wg` | core,wg,incident | RF2 |
 | `stack-rf1` | core,incident | RF1 |
+| `stack-rf3` | core,incident | RF3 (hop link monitoring) |
 
 Install merges: fragments for each enabled module → profile overrides → `/etc/cock-monitor.env`.
 
