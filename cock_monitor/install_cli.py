@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from cock_monitor.platform.config import build_env_from_profile, repo_root, write_env_file
+from cock_monitor.platform.daily_runners import exec_start_line, is_daily_service
 from cock_monitor.platform.registry import get_registry
 from cock_monitor.platform.storage.manager import StorageManager
 
@@ -41,8 +42,6 @@ V2_UNITS = [
     "cock-monitor-wg.timer",
     "cock-monitor-mtproxy.service",
     "cock-monitor-mtproxy.timer",
-    "cock-monitor-vless.service",
-    "cock-monitor-vless.timer",
     "cock-monitor-incident.service",
     "cock-monitor-incident.timer",
     "cock-monitor-shaper.service",
@@ -83,15 +82,32 @@ def uninstall(*, wipe_data: bool, env_file: Path, data_dir: Path) -> int:
     return 0
 
 
-def _write_systemd_override(service: str, repo: Path, python_bin: Path, env_file: Path) -> None:
+def _write_systemd_override(
+    service: str, repo: Path, python_bin: Path, env_file: Path
+) -> None:
     dropin = Path("/etc/systemd/system") / f"{service}.d"
     dropin.mkdir(parents=True, exist_ok=True)
-    body = (
-        "[Service]\n"
-        f"WorkingDirectory={repo}\n"
-        f"Environment=COCK_MONITOR_HOME={repo}\n"
-    )
+    exec_line = exec_start_line(python_bin, env_file, service) if is_daily_service(service) else None
+    if exec_line:
+        body = (
+            "[Service]\n"
+            f"WorkingDirectory={repo}\n"
+            f"Environment=COCK_MONITOR_HOME={repo}\n"
+            "ExecStart=\n"
+            f"ExecStart={exec_line}\n"
+        )
+    else:
+        body = (
+            "[Service]\n"
+            f"WorkingDirectory={repo}\n"
+            f"Environment=COCK_MONITOR_HOME={repo}\n"
+        )
     (dropin / "override.conf").write_text(body, encoding="utf-8")
+
+
+def collect_install_units(env: dict[str, str]) -> set[str]:
+    """Return systemd unit names to install for the given env (testable without root)."""
+    return get_registry().install_systemd_units(env)
 
 
 def install(
@@ -134,12 +150,7 @@ def install(
     StorageManager(db_path).migrate_all(env)
 
     registry = get_registry()
-    units_to_install: set[str] = set()
-    for spec in registry.enabled_specs(env):
-        units_to_install.add(spec.service_unit())
-        units_to_install.add(spec.timer_unit())
-    units_to_install.add("cock-monitor-telegram.service")
-    units_to_install.add("cock-monitor-telegram.timer")
+    units_to_install = registry.install_systemd_units(env)
 
     systemd_src = repo / "systemd"
     systemd_dst = Path("/etc/systemd/system")

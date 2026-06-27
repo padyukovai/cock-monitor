@@ -23,5 +23,8 @@ def register(registry: ModuleRegistry) -> None:
                 TelegramCommand("chart", "PNG chart (conntrack + host, 24h)", "core"),
                 TelegramCommand("help", "Show enabled module commands", "core"),
             ),
+            daily_timer=True,
+            daily_service_unit="cock-monitor-daily.service",
+            daily_timer_unit="cock-monitor-daily.timer",
         )
     )

@@ -130,3 +130,21 @@
 - Критерии готовности: выполнены (по smoke; pytest — на CI/хосте с dev deps).
 - Риски/хвосты: на серверах с legacy env удалить `SHAPER_ENABLE`/`INCIDENT_SAMPLER_ENABLE`/`MTPROXY_ENABLE` после redeploy; `install/incident/enable-incident-sampler.sh` всё ещё пишет legacy-флаг (вне scope фазы 7).
 - Готовность к фазе 8: да.
+
+## Отчёт по фазе 8
+
+- Цель фазы: install ставит daily timers по включённым модулям; матрица профилей (Helsinki → `stack-mtproxy`).
+- Структурные изменения:
+  - `ModuleSpec.daily_service_unit` / `daily_timer_unit` + `ModuleRegistry.install_systemd_units()`;
+  - `cock_monitor/platform/daily_runners.py` — маппинг daily service → CLI;
+  - `install_cli` использует registry и пишет ExecStart override для daily units;
+  - vless переведён на `cock-vless-daily.*` (единый daily unit);
+  - профиль `stack-exit-node` (alias `stack-3xui`).
+- Зачем: daily chart / vless / mtproxy отчёты ставятся автоматически при install, без ручного копирования legacy timers.
+- Изменённые файлы: `cock_monitor/platform/registry.py`, `platform/daily_runners.py` (new), `install_cli.py`, `modules/{core,vless,mtproxy}/register.py`, `config/profiles/stack-exit-node.env` (new), `install/profiles.md`, `DEPLOY.md`, `tests/test_install_cli.py` (new).
+- Breaking changes: да (vless systemd units: `cock-monitor-vless.*` → `cock-vless-daily.*`; при redeploy v2 install подхватит новые имена).
+- Миграции данных: нет.
+- Обновления документации: `install/profiles.md`, `DEPLOY.md`.
+- Регресс: smoke `collect_install_units` для stack-3xui/mtproxy/rf3/exit-node ok; `tests/test_install_cli.py` добавлен.
+- Критерии готовности: выполнены.
+- Готовность к фазе 9: да.

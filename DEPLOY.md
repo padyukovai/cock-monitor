@@ -19,6 +19,22 @@ export ENV_FILE=/etc/cock-monitor.env
 
 ## Стандартный деплой (git pull)
 
+### v2: профили и daily timers
+
+Чистая установка по роли VPS (см. [`install/profiles.md`](install/profiles.md)):
+
+```bash
+sudo bash install/install.sh --profile stack-exit-node --token "$TELEGRAM_BOT_TOKEN" --chat-id "$TELEGRAM_CHAT_ID"
+# Helsinki: --profile stack-mtproxy
+# RF3:      --profile stack-rf3
+```
+
+`install` ставит modular timers **и** daily-отчёты по включённым модулям:
+
+- `core` → `cock-monitor-daily.timer` (PNG chart)
+- `vless` → `cock-vless-daily.timer`
+- `mtproxy` → `cock-mtproxy-daily.timer`
+
 1) Проверить, что целевая папка и репозиторий на месте:
 
 ```bash

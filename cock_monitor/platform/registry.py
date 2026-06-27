@@ -28,12 +28,21 @@ class ModuleSpec:
     schema_migrate: Callable[..., None] | None = None
     telegram_commands: tuple[TelegramCommand, ...] = ()
     daily_timer: bool = False
+    daily_service_unit: str = ""
+    daily_timer_unit: str = ""
 
     def service_unit(self) -> str:
         return self.systemd_service or f"cock-monitor-{self.id}.service"
 
     def timer_unit(self) -> str:
         return self.systemd_timer or f"cock-monitor-{self.id}.timer"
+
+    def daily_units(self) -> tuple[str, str]:
+        if not self.daily_timer:
+            return ("", "")
+        service = self.daily_service_unit or f"cock-monitor-{self.id}-daily.service"
+        timer = self.daily_timer_unit or f"cock-monitor-{self.id}-daily.timer"
+        return (service, timer)
 
 
 def parse_enabled_modules(env: dict[str, str]) -> list[str]:
@@ -99,9 +108,30 @@ class ModuleRegistry:
         for spec in self.enabled_specs(env):
             if spec.id == "core" or spec.systemd_timer or spec.systemd_service:
                 timers.append(spec.timer_unit())
+            if spec.daily_timer:
+                _, daily_timer = spec.daily_units()
+                if daily_timer:
+                    timers.append(daily_timer)
         if include_telegram:
             timers.append("cock-monitor-telegram.timer")
         return sorted(set(timers))
+
+    def install_systemd_units(self, env: dict[str, str], *, include_telegram: bool = True) -> set[str]:
+        units: set[str] = set()
+        for spec in self.enabled_specs(env):
+            if spec.id == "core" or spec.systemd_service or spec.systemd_timer:
+                units.add(spec.service_unit())
+                units.add(spec.timer_unit())
+            if spec.daily_timer:
+                daily_service, daily_timer = spec.daily_units()
+                if daily_service:
+                    units.add(daily_service)
+                if daily_timer:
+                    units.add(daily_timer)
+        if include_telegram:
+            units.add("cock-monitor-telegram.service")
+            units.add("cock-monitor-telegram.timer")
+        return units
 
     def systemd_services(self, env: dict[str, str], *, include_telegram: bool = True) -> list[str]:
         services: list[str] = []

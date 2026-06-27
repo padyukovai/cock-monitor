@@ -87,11 +87,11 @@
 
 ### Критерии готовности
 
-- [ ] `install --profile stack-3xui` ставит `cock-vless-daily.timer` и `cock-monitor-daily.timer`.
-- [ ] `install --profile stack-mtproxy` ставит `cock-mtproxy-daily.timer` (если daily нужен mtproxy).
-- [ ] `install/profiles.md`: Helsinki → `stack-mtproxy`.
-- [ ] Тест install_cli (mock filesystem): enabled modules → ожидаемый набор timers.
-- [ ] `pytest`, `ruff` OK.
+- [x] `install --profile stack-3xui` ставит `cock-vless-daily.timer` и `cock-monitor-daily.timer`.
+- [x] `install --profile stack-mtproxy` ставит `cock-mtproxy-daily.timer` (если daily нужен mtproxy).
+- [x] `install/profiles.md`: Helsinki → `stack-mtproxy`.
+- [x] Тест install_cli (mock filesystem): enabled modules → ожидаемый набор timers.
+- [ ] `pytest`, `ruff` OK (на хосте с dev deps).
 
 ### Оценка объёма
 

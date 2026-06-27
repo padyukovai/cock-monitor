@@ -1,15 +1,25 @@
 # Server → profile matrix
 
-| Host | SSH | Profile |
-|------|-----|---------|
-| NY (cock-is) | `cock-is` | `stack-3xui` |
-| Madrid | `root@83.147.242.226` | `stack-3xui` (+ `mtproxy` if used) |
-| Germany | `cock-germany` | `stack-3xui` |
-| London | `cock-london` | `stack-3xui` |
-| Helsinki | `cock-helsinki` | `stack-3xui` |
-| RF1 | `whitelisthack` | `stack-rf1` |
-| RF2 | `rf2` | `stack-rf2-wg` |
-| RF3 | `cock-rf3` | `stack-rf3` |
+| Host | SSH | Profile | Modules |
+|------|-----|---------|---------|
+| NY (cock-is) | `cock-is` | `stack-exit-node` or `stack-3xui` | core, vless, incident, shaper |
+| Madrid | `root@83.147.242.226` | `stack-exit-node` (+ `mtproxy` if used) | |
+| Germany | `cock-germany` | `stack-exit-node` or `stack-3xui` | |
+| London | `cock-london` | `stack-exit-node` or `stack-3xui` | |
+| Helsinki | `cock-helsinki` | `stack-mtproxy` | core, mtproxy |
+| RF1 | `whitelisthack` | `stack-rf1` | core, incident |
+| RF2 | `rf2` | `stack-rf2-wg` | core, wg, incident |
+| RF3 | `cock-rf3` | `stack-rf3` | core, incident, hop |
+
+`stack-exit-node` is an alias of `stack-3xui` (readable name for DE/US exit nodes).
+
+Daily timers installed automatically by profile:
+
+| Profile | Daily timers |
+|---------|----------------|
+| `stack-3xui` / `stack-exit-node` | `cock-monitor-daily`, `cock-vless-daily` |
+| `stack-mtproxy` | `cock-monitor-daily`, `cock-mtproxy-daily` |
+| `stack-rf3` | `cock-monitor-daily` only |
 
 ## Clean redeploy (breaking v2)
 
@@ -32,6 +42,19 @@ RF2 example:
 sudo bash install/install.sh --profile stack-rf2-wg --token '...' --chat-id '...' --wipe-data
 ```
 
+Helsinki (MTProxy only):
+
+```bash
+sudo bash install/install.sh --profile stack-mtproxy --token '...' --chat-id '...' --wipe-data
+# then: install/mtproto/* for mtproto.service
+```
+
+Germany / USA (exit-node):
+
+```bash
+sudo bash install/install.sh --profile stack-exit-node --token '...' --chat-id '...' --wipe-data
+```
+
 RF3 example (hop link monitoring to Germany / USA exits):
 
 ```bash
@@ -50,7 +73,7 @@ INCIDENT_HOP_FIN_WAIT_WARN=20
 Verify:
 
 ```bash
-systemctl list-timers 'cock-monitor-*'
+systemctl list-timers 'cock-monitor-*' 'cock-vless-daily.timer' 'cock-mtproxy-daily.timer'
 sudo .venv/bin/python -m cock_monitor modules enabled /etc/cock-monitor.env
 sudo .venv/bin/python -m cock_monitor run core /etc/cock-monitor.env --dry-run
 ```

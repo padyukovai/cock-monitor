@@ -30,5 +30,8 @@ def register(registry: ModuleRegistry) -> None:
                 TelegramCommand("mt_today", "MTProxy 24h report + chart", "mtproxy"),
                 TelegramCommand("mt_threshold", "Update MTProxy thresholds", "mtproxy"),
             ),
+            daily_timer=True,
+            daily_service_unit="cock-mtproxy-daily.service",
+            daily_timer_unit="cock-mtproxy-daily.timer",
         )
     )
