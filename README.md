@@ -413,13 +413,22 @@ python -m cock_monitor burst-capture report /var/lib/cock-monitor/burst-YYYYMMDD
 Политика алертов conntrack (cooldown, STATS и т.д.) и слой SQLite для `conntrack_samples` / `host_samples` вынесены в пакет `cock_monitor` и покрыты unit-тестами. Зависимости для разработки задаются в [`pyproject.toml`](pyproject.toml) (extra `dev`: pytest, ruff). Установка и тесты из корня репозитория:
 
 ```bash
+bash scripts/setup-dev.sh
+.venv/bin/pytest
+.venv/bin/ruff check cock_monitor tests
+```
+
+На WSL без `python3-venv` скрипт использует [`uv`](https://docs.astral.sh/uv/), если он в `PATH`. Пересоздать venv: `bash scripts/setup-dev.sh --recreate`.
+
+Вручную (когда `python3 -m venv` ставит pip):
+
+```bash
 python3 -m venv .venv
 .venv/bin/pip install -U pip
 .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest
 ```
 
-Эквивалентно: `pip install -r requirements-dev.txt` (editable-пакет и dev-инструменты). Для локальной отладки графиков (`/chart`, MTProxy PNG) дополнительно: `pip install -e ".[chart]"` или [`requirements-chart.txt`](requirements-chart.txt). В CI на push/PR выполняются `ruff` и `pytest` (см. [`.github/workflows/python-ci.yml`](.github/workflows/python-ci.yml)).
+Эквивалентно: `pip install -r requirements-dev.txt`. Для локальной отладки графиков (`/chart`, MTProxy PNG) дополнительно: `pip install -e ".[chart]"` или [`requirements-chart.txt`](requirements-chart.txt). В CI на push/PR выполняются `ruff` и `pytest` (см. [`.github/workflows/python-ci.yml`](.github/workflows/python-ci.yml)).
 
 ## Критерий успеха
 
