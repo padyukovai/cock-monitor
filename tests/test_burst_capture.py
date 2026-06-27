@@ -52,6 +52,20 @@ def test_read_sockstat_tcp(tmp_path: Path) -> None:
     assert out["tw"] == 2
 
 
+def test_seek_log_to_end_skips_existing(tmp_path: Path) -> None:
+    log = tmp_path / "access.log"
+    log.write_text("old accepted line\n", encoding="utf-8")
+    state = bal.LogTailState(path=log)
+    bal.seek_log_to_end(state)
+    tracker = bal.BurstLogTracker(access=state)
+    d0 = tracker.poll_access()
+    assert d0.delta_lines == 0 and d0.delta_accepted == 0
+    extra = "2026/01/01 from 1.1.1.1:1 accepted tcp:x:443 email:t\n"
+    log.write_text(log.read_text(encoding="utf-8") + extra, encoding="utf-8")
+    d1 = tracker.poll_access()
+    assert d1.delta_accepted == 1
+
+
 def test_burst_access_log_delta(tmp_path: Path) -> None:
     log = tmp_path / "access.log"
     log.write_text(

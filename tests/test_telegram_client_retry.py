@@ -7,7 +7,7 @@ import urllib.parse
 import urllib.request
 
 import pytest
-from telegram_bot.telegram_client import TelegramClient
+from cock_monitor.platform.telegram.telegram_client import TelegramClient
 
 
 class _FakeResponse:
@@ -24,11 +24,19 @@ class _FakeResponse:
         return None
 
 
+def _patch_opener(client: TelegramClient, monkeypatch: pytest.MonkeyPatch, open_fn: object) -> None:
+    class _Opener:
+        def open(self, req: object, timeout: int = 0) -> object:
+            return open_fn(req, timeout)  # type: ignore[misc, no-any-return]
+
+    monkeypatch.setattr(client, "_opener", _Opener())
+
+
 def test_send_message_retries_transient_http_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     client = TelegramClient("token")
     calls = {"n": 0}
 
-    def _fake_urlopen(_req: object, timeout: int = 0) -> _FakeResponse:
+    def _fake_open(_req: object, timeout: int = 0) -> _FakeResponse:
         calls["n"] += 1
         if calls["n"] == 1:
             raise urllib.error.HTTPError(
@@ -40,9 +48,9 @@ def test_send_message_retries_transient_http_then_succeeds(monkeypatch: pytest.M
             )
         return _FakeResponse({"ok": True, "result": {}})
 
-    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
-    monkeypatch.setattr("telegram_bot.telegram_client.time.sleep", lambda _x: None)
-    monkeypatch.setattr("telegram_bot.telegram_client.random.uniform", lambda _a, _b: 0.0)
+    _patch_opener(client, monkeypatch, _fake_open)
+    monkeypatch.setattr("cock_monitor.platform.telegram.telegram_client.time.sleep", lambda _x: None)
+    monkeypatch.setattr("cock_monitor.platform.telegram.telegram_client.random.uniform", lambda _a, _b: 0.0)
 
     result = client.send_message_with_result("chat", "hello")
 
@@ -55,7 +63,7 @@ def test_send_message_does_not_retry_non_transient_http(monkeypatch: pytest.Monk
     client = TelegramClient("token")
     calls = {"n": 0}
 
-    def _fake_urlopen(_req: object, timeout: int = 0) -> _FakeResponse:
+    def _fake_open(_req: object, timeout: int = 0) -> _FakeResponse:
         calls["n"] += 1
         raise urllib.error.HTTPError(
             url="https://example",
@@ -65,9 +73,9 @@ def test_send_message_does_not_retry_non_transient_http(monkeypatch: pytest.Monk
             fp=io.BytesIO(b'{"ok":false}'),
         )
 
-    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
-    monkeypatch.setattr("telegram_bot.telegram_client.time.sleep", lambda _x: None)
-    monkeypatch.setattr("telegram_bot.telegram_client.random.uniform", lambda _a, _b: 0.0)
+    _patch_opener(client, monkeypatch, _fake_open)
+    monkeypatch.setattr("cock_monitor.platform.telegram.telegram_client.time.sleep", lambda _x: None)
+    monkeypatch.setattr("cock_monitor.platform.telegram.telegram_client.random.uniform", lambda _a, _b: 0.0)
 
     result = client.send_message_with_result("chat", "hello")
 
@@ -80,7 +88,7 @@ def test_send_message_retry_exhausted_transient(monkeypatch: pytest.MonkeyPatch)
     client = TelegramClient("token")
     calls = {"n": 0}
 
-    def _fake_urlopen(_req: object, timeout: int = 0) -> _FakeResponse:
+    def _fake_open(_req: object, timeout: int = 0) -> _FakeResponse:
         calls["n"] += 1
         raise urllib.error.HTTPError(
             url="https://example",
@@ -90,9 +98,9 @@ def test_send_message_retry_exhausted_transient(monkeypatch: pytest.MonkeyPatch)
             fp=io.BytesIO(b'{"ok":false}'),
         )
 
-    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
-    monkeypatch.setattr("telegram_bot.telegram_client.time.sleep", lambda _x: None)
-    monkeypatch.setattr("telegram_bot.telegram_client.random.uniform", lambda _a, _b: 0.0)
+    _patch_opener(client, monkeypatch, _fake_open)
+    monkeypatch.setattr("cock_monitor.platform.telegram.telegram_client.time.sleep", lambda _x: None)
+    monkeypatch.setattr("cock_monitor.platform.telegram.telegram_client.random.uniform", lambda _a, _b: 0.0)
 
     result = client.send_message_with_result("chat", "hello")
 
@@ -102,17 +110,35 @@ def test_send_message_retry_exhausted_transient(monkeypatch: pytest.MonkeyPatch)
     assert calls["n"] == 3
 
 
+def test_send_message_uses_http_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TelegramClient("token", proxy_url="http://127.0.0.1:10809")
+    captured: dict[str, object] = {}
+
+    class _Opener:
+        def open(self, req: object, timeout: int = 0) -> _FakeResponse:
+            captured["req"] = req
+            captured["timeout"] = timeout
+            return _FakeResponse({"ok": True, "result": {}})
+
+    monkeypatch.setattr(client, "_opener", _Opener())
+
+    result = client.send_message_with_result("chat", "hello")
+
+    assert result.success is True
+    assert captured["req"] is not None
+
+
 def test_set_my_commands_posts_commands_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     client = TelegramClient("token")
     captured: dict[str, object] = {}
 
-    def _fake_urlopen(req: object, timeout: int = 0) -> _FakeResponse:
+    def _fake_open(req: object, timeout: int = 0) -> _FakeResponse:
         captured["url"] = getattr(req, "full_url", "")
         captured["data"] = getattr(req, "data", b"")
         captured["timeout"] = timeout
         return _FakeResponse({"ok": True, "result": True})
 
-    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+    _patch_opener(client, monkeypatch, _fake_open)
 
     client.set_my_commands([("status", "Full conntrack status"), ("help", "Show command help")])
 

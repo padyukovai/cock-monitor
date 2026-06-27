@@ -58,7 +58,7 @@ def _load_samples(log_dir: str, start_ts: int, end_ts: int, host: str | None) ->
                         row = json.loads(line)
                     except json.JSONDecodeError:
                         continue
-                    if row.get("sampler") != "incident-sampler":
+                    if row.get("sampler") not in ("incident", "incident-sampler"):
                         continue
                     if host and row.get("host") != host:
                         continue
@@ -107,6 +107,9 @@ def build_html(
     max_syn = 0
     max_estab = 0
     max_tw = 0
+    max_fin_wait = 0
+    max_orphan = 0
+    hop_peaks: dict[str, dict[str, int]] = {}
     max_loss = 0
     max_loss_gateway = 0
     max_loss_internal = 0
@@ -162,6 +165,26 @@ def build_html(
         v = tcp.get("time_wait")
         if isinstance(v, int):
             max_tw = max(max_tw, v)
+        v = tcp.get("fin_wait")
+        if isinstance(v, int):
+            max_fin_wait = max(max_fin_wait, v)
+        v = tcp.get("orphan")
+        if isinstance(v, int):
+            max_orphan = max(max_orphan, v)
+
+        hop = row.get("hop_links") or {}
+        if isinstance(hop, dict):
+            for link in hop.get("links") or []:
+                if not isinstance(link, dict):
+                    continue
+                name = str(link.get("name") or "hop")
+                peak = hop_peaks.setdefault(
+                    name, {"estab": 0, "fin_wait": 0, "time_wait": 0}
+                )
+                for key in ("estab", "fin_wait", "time_wait"):
+                    val = link.get(key)
+                    if isinstance(val, int):
+                        peak[key] = max(peak[key], val)
 
         max_loss = max(max_loss, _max_ping_loss(row.get("ping")))
         g_loss, g_fail = _group_rollup(row, "gateway")
@@ -264,6 +287,17 @@ def build_html(
         f"max fill %: <code>{max_fill}</code> · "
         f"max estab/syn_recv/tw: <code>{max_estab}</code>/<code>{max_syn}</code>/<code>{max_tw}</code>"
     )
+    if max_fin_wait or max_orphan:
+        lines.append(
+            f"max fin_wait/orphan: <code>{max_fin_wait}</code>/<code>{max_orphan}</code>"
+        )
+    if hop_peaks:
+        hop_parts = []
+        for name, peak in sorted(hop_peaks.items()):
+            hop_parts.append(
+                f"{html.escape(name)} e={peak['estab']} fw={peak['fin_wait']} tw={peak['time_wait']}"
+            )
+        lines.append("hop peaks: " + " · ".join(hop_parts))
 
     lines.append("")
     lines.append("<b>Host</b>")

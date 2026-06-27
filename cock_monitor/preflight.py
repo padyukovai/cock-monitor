@@ -5,11 +5,21 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 from cock_monitor.config_loader import load_config
 from cock_monitor.defaults import DEFAULT_ENV_FILE
+from cock_monitor.platform.profile_ops import ProfileOps, load_profile_ops
+from cock_monitor.platform.registry import get_registry, module_enabled, parse_enabled_modules
+
+
+def parse_enabled_modules_safe(env: dict[str, str]) -> list[str]:
+    try:
+        return parse_enabled_modules(env)
+    except ValueError:
+        return ["core"]
 
 
 def _to_bool(raw: str | None, default: bool = False) -> bool:
@@ -32,11 +42,66 @@ def _check_tool(name: str, *, required: bool) -> tuple[str, bool]:
     return (f"warn: {msg}", True)
 
 
+def _check_systemd_unit(unit: str) -> tuple[str, bool]:
+    unit_paths = (
+        Path("/etc/systemd/system") / unit,
+        Path("/lib/systemd/system") / unit,
+        Path("/usr/lib/systemd/system") / unit,
+    )
+    if not any(p.is_file() for p in unit_paths):
+        return (f"ERROR: systemd unit not found: {unit}", False)
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-active", unit],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        status = (r.stdout or "").strip() or "unknown"
+        if status == "active":
+            return (f"ok: systemd {unit} active", True)
+        return (f"warn: systemd {unit} installed but status={status}", True)
+    except (OSError, subprocess.SubprocessError) as e:
+        return (f"warn: cannot check systemd {unit}: {e}", True)
+
+
+def _check_tcp_port_listen(port: int) -> tuple[str, bool]:
+    try:
+        r = subprocess.run(
+            ["ss", "-ltn", f"sport = :{port}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if f":{port}" in (r.stdout or ""):
+            return (f"ok: TCP port {port} listening", True)
+        return (f"warn: TCP port {port} not listening", True)
+    except (OSError, subprocess.SubprocessError) as e:
+        return (f"warn: cannot check TCP port {port}: {e}", True)
+
+
+def _run_profile_ops_checks(ops: ProfileOps) -> tuple[list[str], bool]:
+    lines: list[str] = []
+    ok = True
+    for unit in ops.preflight_systemd_units:
+        text, step_ok = _check_systemd_unit(unit)
+        lines.append(text)
+        ok = ok and step_ok
+    for port in ops.preflight_tcp_ports:
+        text, step_ok = _check_tcp_port_listen(port)
+        lines.append(text)
+        ok = ok and step_ok
+    return lines, ok
+
+
 def run_preflight(
     env_path: Path | None,
     *,
     minimal: bool,
     implicit_env_path: bool = False,
+    profile: str | None = None,
 ) -> int:
     ok = True
     lines: list[str] = []
@@ -80,38 +145,28 @@ def run_preflight(
             lines.append("ERROR: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set together")
             ok = False
 
-        if _to_bool(env.get("MTPROXY_ENABLE")):
-            for name in ("ss", "iptables", "pgrep"):
+        enabled = parse_enabled_modules_safe(env)
+        lines.append(f"ok: ENABLED_MODULES={','.join(enabled)}")
+
+        registry = get_registry()
+        for spec in registry.enabled_specs(env):
+            for name in spec.required_tools:
                 text, step_ok = _check_tool(name, required=True)
                 lines.append(text)
                 ok = ok and step_ok
 
-        xui = env.get("XUI_DB_PATH", "").strip()
-        if xui:
-            p = Path(xui).expanduser()
-            if not p.is_file():
-                lines.append(f"ERROR: XUI_DB_PATH not a file: {p}")
-                ok = False
-            elif not os.access(p, os.R_OK):
-                lines.append(f"ERROR: XUI_DB_PATH not readable: {p}")
-                ok = False
-            else:
-                lines.append(f"ok: XUI_DB_PATH readable: {p}")
-
-        if _to_bool(env.get("INCIDENT_SAMPLER_ENABLE")):
-            for name in ("ping", "timeout", "getent", "ss"):
-                text, step_ok = _check_tool(name, required=True)
-                lines.append(text)
-                ok = ok and step_ok
-            units_raw = env.get("INCIDENT_SYSTEMD_UNITS", "").strip()
-            if units_raw:
-                text, step_ok = _check_tool("systemctl", required=True)
-                lines.append(text)
-                ok = ok and step_ok
-            if env.get("INCIDENT_TCP_PROBE_PORTS", "").strip():
-                text, step_ok = _check_tool("ip", required=True)
-                lines.append(text)
-                ok = ok and step_ok
+        if module_enabled("vless", env):
+            xui = env.get("XUI_DB_PATH", "").strip()
+            if xui:
+                p = Path(xui).expanduser()
+                if not p.is_file():
+                    lines.append(f"ERROR: XUI_DB_PATH not a file: {p}")
+                    ok = False
+                elif not os.access(p, os.R_OK):
+                    lines.append(f"ERROR: XUI_DB_PATH not readable: {p}")
+                    ok = False
+                else:
+                    lines.append(f"ok: XUI_DB_PATH readable: {p}")
 
         burst_access = env.get("BURST_ACCESS_LOG_PATH", "").strip()
         if burst_access:
@@ -127,13 +182,7 @@ def run_preflight(
             text, _ = _check_tool("pgrep", required=False)
             lines.append(text)
 
-        if _to_bool(env.get("SHAPER_ENABLE")):
-            for name in ("tc", "ip"):
-                text, step_ok = _check_tool(name, required=True)
-                lines.append(text)
-                ok = ok and step_ok
-
-        want_matplotlib = _to_bool(env.get("MTPROXY_ENABLE")) or bool(env.get("METRICS_DB", "").strip())
+        want_matplotlib = module_enabled("core", env) or module_enabled("mtproxy", env)
         if want_matplotlib:
             try:
                 import matplotlib  # noqa: F401
@@ -144,6 +193,17 @@ def run_preflight(
                     f"warn: matplotlib not available ({e}); "
                     "install python3-matplotlib for /chart and PNG reports"
                 )
+
+    if profile and not minimal:
+        try:
+            ops = load_profile_ops(profile)
+            lines.append(f"ok: profile ops {profile}")
+            ops_lines, ops_ok = _run_profile_ops_checks(ops)
+            lines.extend(ops_lines)
+            ok = ok and ops_ok
+        except FileNotFoundError as e:
+            lines.append(f"ERROR: {e}")
+            ok = False
 
     for line in lines:
         print(line, file=sys.stdout)
@@ -163,6 +223,10 @@ def main(argv: list[str] | None = None) -> int:
         "--minimal",
         action="store_true",
         help="Only check curl, sqlite3, conntrack warning; skip env-driven checks",
+    )
+    parser.add_argument(
+        "--profile",
+        help="Profile name for PREFLIGHT_SYSTEMD_UNITS / PREFLIGHT_TCP_PORTS checks",
     )
     parser.add_argument(
         "env_file_positional",
@@ -186,4 +250,5 @@ def main(argv: list[str] | None = None) -> int:
         env_path,
         minimal=args.minimal,
         implicit_env_path=implicit_env_path,
+        profile=args.profile,
     )

@@ -14,7 +14,7 @@ def test_load_config_parses_defaults_and_sections(tmp_path: Path) -> None:
                 "TELEGRAM_CHAT_ID=123",
                 "WARN_PERCENT=81",
                 "CRIT_PERCENT=96",
-                "MTPROXY_ENABLE=1",
+                "ENABLED_MODULES=core,mtproxy",
                 "MTPROXY_PORT=9443",
                 "VLESS_DAILY_TOP_N=15",
             ]
@@ -38,7 +38,7 @@ def test_load_config_validation_errors(tmp_path: Path) -> None:
             [
                 "WARN_PERCENT=100",
                 "CRIT_PERCENT=90",
-                "MTPROXY_ENABLE=1",
+                "ENABLED_MODULES=core,mtproxy",
             ]
         )
         + "\n",
@@ -48,7 +48,7 @@ def test_load_config_validation_errors(tmp_path: Path) -> None:
     assert loaded.validation.ok is False
     assert any("WARN_PERCENT must be lower than CRIT_PERCENT" in e for e in loaded.validation.errors)
     assert any(
-        "MTPROXY_ENABLE=1 requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID"
+        "ENABLED_MODULES includes mtproxy"
         in e
         for e in loaded.validation.errors
     )

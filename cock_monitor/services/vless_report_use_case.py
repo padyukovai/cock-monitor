@@ -11,8 +11,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from telegram_bot.telegram_client import TelegramClient
-
 from cock_monitor.adapters.vless_access_log import collect_access_log_ip_summary
 from cock_monitor.adapters.vless_report_formatter import (
     build_vless_top_downloaders,
@@ -23,6 +21,7 @@ from cock_monitor.config_loader import load_config
 from cock_monitor.defaults import DEFAULT_METRICS_DB
 from cock_monitor.domain.vless_traffic import load_tz
 from cock_monitor.env import merge_env_into_process
+from cock_monitor.platform.telegram.client import TelegramClient
 from cock_monitor.services.vless_chart import generate_vless_top_chart
 from cock_monitor.storage.sqlite_connection import open_sqlite_connection
 from cock_monitor.storage.vless_repository import (
@@ -201,9 +200,10 @@ def run_vless_report_use_case(
             else:
                 token = loaded.app.telegram.bot_token
                 chat = loaded.app.telegram.chat_id
+                proxy = loaded.app.telegram.proxy_url.strip() or None
                 if not token or not chat:
                     raise VlessReportError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID required")
-                client = TelegramClient(token)
+                client = TelegramClient(token, proxy_url=proxy)
                 client.send_message(chat, report_text, parse_mode="HTML")
                 if chart_enable and prev_map:
                     tmp_path = ""

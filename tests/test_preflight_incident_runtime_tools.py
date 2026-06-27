@@ -10,7 +10,7 @@ def test_preflight_checks_incident_runtime_tools(tmp_path: Path, capsys, monkeyp
     env_path.write_text(
         "\n".join(
             [
-                "INCIDENT_SAMPLER_ENABLE=1",
+                "ENABLED_MODULES=core,incident",
                 'INCIDENT_SYSTEMD_UNITS="x-ui.service"',
                 'INCIDENT_TCP_PROBE_PORTS="443"',
             ]

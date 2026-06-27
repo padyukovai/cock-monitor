@@ -1,19 +1,24 @@
 from __future__ import annotations
 
-from telegram_bot.handlers import bot_commands
+from cock_monitor.platform.registry import get_registry
 
 
-def test_bot_commands_hides_mtproxy_and_shaper_when_disabled() -> None:
-    commands = bot_commands(mtproxy_enabled=False, shaper_enabled=False)
-    names = [name for name, _ in commands]
-    assert names == ["status", "chart", "vless_delta", "help"]
+def test_registry_commands_hides_mtproxy_and_shaper_when_disabled() -> None:
+    registry = get_registry()
+    commands = registry.telegram_commands({"ENABLED_MODULES": "core,vless"})
+    names = [c.name for c in commands]
+    assert "status" in names
+    assert "chart" in names
+    assert "vless_delta" in names
+    assert "help" in names
     assert not any(name.startswith("mt_") for name in names)
     assert "cake_bw" not in names
 
 
-def test_bot_commands_includes_optional_modules_when_enabled() -> None:
-    commands = bot_commands(mtproxy_enabled=True, shaper_enabled=True)
-    names = [name for name, _ in commands]
+def test_registry_commands_includes_optional_modules_when_enabled() -> None:
+    registry = get_registry()
+    commands = registry.telegram_commands({"ENABLED_MODULES": "core,vless,mtproxy,shaper"})
+    names = [c.name for c in commands]
     assert "cake_bw" in names
     assert "mt_status" in names
     assert "mt_today" in names

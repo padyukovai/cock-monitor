@@ -19,7 +19,7 @@
 На **London** (и позже на **USA** для сравнения) добавьте в `/etc/cock-monitor.env`:
 
 ```bash
-INCIDENT_SAMPLER_ENABLE=1
+ENABLED_MODULES=core,incident
 INCIDENT_TCP_PROBE_PORTS=443
 INCIDENT_TCP_PROBE_LOCAL_TARGET=127.0.0.1
 INCIDENT_TCP_PROBE_EXTERNAL_TARGET=163.5.41.47   # public IP этого VPS
@@ -29,14 +29,14 @@ INCIDENT_ALERT_ENABLE=0
 Включите timer:
 
 ```bash
-sudo systemctl enable --now cock-monitor-incident-sampler.timer
-sudo systemctl status cock-monitor-incident-sampler.timer
+sudo systemctl enable --now cock-monitor-incident.timer
+sudo systemctl status cock-monitor-incident.timer
 ```
 
 Проверка одного тика:
 
 ```bash
-sudo INCIDENT_SAMPLER_ENABLE=1 .venv/bin/python -m cock_monitor.services.incident_sampler /etc/cock-monitor.env
+sudo .venv/bin/python -m cock_monitor run incident /etc/cock-monitor.env
 tail -1 /var/lib/cock-monitor/incident-$(date -u +%Y%m%d).jsonl
 ```
 
@@ -63,7 +63,7 @@ BURST_PROBE_PORT=443
 
 ```bash
 cd /opt/cock-monitor
-sudo .venv/bin/python -m cock_monitor burst-capture start --env-file /etc/cock-monitor.env --duration 60
+sudo .venv/bin/python -m cock_monitor burst-capture --env-file /etc/cock-monitor.env start --duration 60
 ```
 
 **На Mac (cockvpn):**
@@ -78,7 +78,7 @@ sudo .venv/bin/python -m cock_monitor burst-capture start --env-file /etc/cock-m
 **Снова на VPS:**
 
 ```bash
-sudo .venv/bin/python -m cock_monitor burst-capture stop --env-file /etc/cock-monitor.env
+sudo .venv/bin/python -m cock_monitor burst-capture --env-file /etc/cock-monitor.env stop
 # путь из вывода stop/status
 sudo .venv/bin/python -m cock_monitor burst-capture report /var/lib/cock-monitor/burst-YYYYMMDD-HHMMSS.jsonl
 # JSON:
@@ -113,8 +113,8 @@ sudo .venv/bin/python -m cock_monitor burst-capture report ... --client-failed
 
 | Проблема | Решение |
 |----------|---------|
-| `cock-monitor-incident-sampler.timer` inactive | `sudo systemctl enable --now cock-monitor-incident-sampler.timer` |
-| Пустой `incident-*.jsonl` | `INCIDENT_SAMPLER_ENABLE=1` в env |
+| `cock-monitor-incident.timer` inactive | `sudo systemctl enable --now cock-monitor-incident.timer` |
+| Пустой `incident-*.jsonl` | `ENABLED_MODULES=...,incident` в env |
 | `burst-capture: already running` | `burst-capture stop` или удалить stale `/var/lib/cock-monitor/burst-capture.state` |
 | `xray.pid=0` | проверить `pgrep -a xray`, `BURST_XRAY_PROCESS_MATCH` |
 | `delta_accepted` всегда 0, путь лога неверный | `ls -la /var/log/x-ui/3xipl-ap.log`, сверить с 3x-ui bind mount |

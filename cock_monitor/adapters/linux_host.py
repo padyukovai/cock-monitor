@@ -57,21 +57,36 @@ def read_load_mem_from_proc(
     return load1, mem_kb
 
 
-def parse_ss_tan_state_counts(ss_output: str) -> tuple[int, int, int]:
-    """Count ESTAB, SYN-RECV, TIME-WAIT from `ss -tan` stdout (Linux)."""
+def parse_ss_state_line_counts(ss_output: str) -> dict[str, int]:
+    """Count TCP socket states from `ss -tan` / `ss -Htan` line-oriented output."""
     counts: dict[str, int] = {}
     for line in ss_output.splitlines():
         parts = line.split()
-        if len(parts) < 1:
+        if not parts:
             continue
         state = parts[0]
         if state == "State":
             continue
         counts[state] = counts.get(state, 0) + 1
-    estab = counts.get("ESTAB", 0)
-    syn = counts.get("SYN-RECV", 0)
-    tw = counts.get("TIME-WAIT", 0)
-    return estab, syn, tw
+    fin_wait = counts.get("FIN-WAIT-1", 0) + counts.get("FIN-WAIT-2", 0)
+    return {
+        "estab": counts.get("ESTAB", 0),
+        "syn_recv": counts.get("SYN-RECV", 0),
+        "time_wait": counts.get("TIME-WAIT", 0),
+        "fin_wait": fin_wait,
+        "close_wait": counts.get("CLOSE-WAIT", 0),
+    }
+
+
+def parse_ss_tan_state_counts(ss_output: str) -> tuple[int, int, int]:
+    """Count ESTAB, SYN-RECV, TIME-WAIT from `ss -tan` stdout (Linux)."""
+    states = parse_ss_state_line_counts(ss_output)
+    return states["estab"], states["syn_recv"], states["time_wait"]
+
+
+def parse_ss_tan_extended_counts(ss_output: str) -> dict[str, int]:
+    """Extended TCP state counts from `ss -tan` stdout."""
+    return parse_ss_state_line_counts(ss_output)
 
 
 def safe_pct(n: int, d: int) -> int:
@@ -175,17 +190,14 @@ def parse_ss_summary(ss_output: str) -> dict[str, int]:
 
 
 def parse_ss_port_state_counts(ss_output: str) -> dict[str, int]:
-    """Count ESTAB and SYN-RECV from `ss -H -tan sport = :PORT` output."""
-    counts: dict[str, int] = {}
-    for line in ss_output.splitlines():
-        parts = line.split()
-        if not parts:
-            continue
-        state = parts[0]
-        counts[state] = counts.get(state, 0) + 1
+    """Count TCP states from filtered `ss -Htan` output."""
+    states = parse_ss_state_line_counts(ss_output)
     return {
-        "estab": counts.get("ESTAB", 0),
-        "syn_recv": counts.get("SYN-RECV", 0),
+        "estab": states["estab"],
+        "syn_recv": states["syn_recv"],
+        "time_wait": states["time_wait"],
+        "fin_wait": states["fin_wait"],
+        "close_wait": states["close_wait"],
     }
 
 

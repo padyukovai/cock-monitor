@@ -1,0 +1,11 @@
+[Unit]
+Description=Run cock-monitor shaper every minute
+Documentation=file:///opt/cock-monitor/README.md
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=cock-monitor-shaper.service
+
+[Install]
+WantedBy=timers.target

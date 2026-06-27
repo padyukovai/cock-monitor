@@ -1,0 +1,13 @@
+[Unit]
+Description=xray hop probe (local SOCKS -> VLESS outbounds)
+After=network-online.target x-ui.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/x-ui/bin/xray-linux-amd64 run -c /etc/xray-hop-probe/config.json
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

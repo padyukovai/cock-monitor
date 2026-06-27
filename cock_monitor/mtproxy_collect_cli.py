@@ -5,10 +5,12 @@ import argparse
 import sys
 from pathlib import Path
 
-from mtproxy_module.alerts import AlertCandidate, evaluate_alerts
-from mtproxy_module.collector import collect_connections
-from mtproxy_module.config import MtproxyConfig
-from mtproxy_module.repository import (
+from cock_monitor.config_loader import load_config
+from cock_monitor.env import merge_env_into_process
+from cock_monitor.modules.mtproxy.alerts import AlertCandidate, evaluate_alerts
+from cock_monitor.modules.mtproxy.collector import collect_connections
+from cock_monitor.modules.mtproxy.config import MtproxyConfig
+from cock_monitor.modules.mtproxy.repository import (
     collect_traffic,
     connect_db,
     init_schema,
@@ -16,10 +18,7 @@ from mtproxy_module.repository import (
     scenario_transaction,
     store_metric,
 )
-from telegram_bot.telegram_client import TelegramClient
-
-from cock_monitor.config_loader import load_config
-from cock_monitor.env import merge_env_into_process
+from cock_monitor.platform.telegram.client import TelegramClient
 
 
 def dispatch_mtproxy_alerts(
@@ -69,9 +68,7 @@ def run(argv: list[str] | None = None) -> int:
 
     token = loaded.app.telegram.bot_token
     chat_id = loaded.app.telegram.chat_id
-    if not token or not chat_id:
-        print("cock-mtproxy-collect: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required", file=sys.stderr)
-        return 1
+    proxy = loaded.app.telegram.proxy_url.strip() or None
 
     conn = connect_db(cfg.db_path)
     init_schema(conn)
@@ -81,7 +78,13 @@ def run(argv: list[str] | None = None) -> int:
         store_metric(conn, conns, traffic)
         alerts = evaluate_alerts(conn, cfg, conns, traffic)
 
-    client = TelegramClient(token)
-    dispatch_mtproxy_alerts(conn=conn, client=client, chat_id=chat_id, alerts=alerts)
+    if token and chat_id:
+        client = TelegramClient(token, proxy_url=proxy)
+        dispatch_mtproxy_alerts(conn=conn, client=client, chat_id=chat_id, alerts=alerts)
+    elif alerts:
+        print(
+            "cock-mtproxy-collect: alerts skipped (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not set)",
+            file=sys.stderr,
+        )
     conn.close()
     return 0

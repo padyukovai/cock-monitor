@@ -1,6 +1,8 @@
 # Этап 0 — инвентаризация и контракты
 
-Базовая фиксация текущего поведения до крупных изменений. Источники: `bin/*`, `cock_monitor/*`, `mtproxy_module/*`, `telegram_bot/*`, `systemd/*`, [`README.md`](../README.md), [`config.example.env`](../config.example.env), [`DEPLOY.md`](../DEPLOY.md).
+> **Исторический документ (v1, до фаз 7–13).** Актуальные entrypoints и systemd: [`install/profiles.md`](../install/profiles.md), [`README.md`](../README.md), [`DEPLOY.md`](../DEPLOY.md). Модули: `python -m cock_monitor run <module>`, таймеры `cock-monitor-<module>.*`, включение только через `ENABLED_MODULES`.
+
+Базовая фиксация текущего поведения до крупных изменений. Источники: `bin/*`, `cock_monitor/*`, `systemd/*`, [`README.md`](../README.md), [`config.example.env`](../config.example.env), [`DEPLOY.md`](../DEPLOY.md).
 
 ## 1) Матрица сценариев (entrypoint -> входы -> выходы -> side effects -> timer)
 
@@ -13,7 +15,7 @@
 | `python -m cock_monitor mtproxy-collect` | `--env-file`; env: `MTPROXY_*`, `METRICS_DB`, `TELEGRAM_*` | Exit code, stderr/stdout | Чтение `ss`, `iptables`; запись `mtproxy_metrics`, `mtproxy_alerts`, `mtproxy_state` в `METRICS_DB`; Telegram алерты | [`systemd/cock-mtproxy-monitor.timer`](../systemd/cock-mtproxy-monitor.timer) -> [`systemd/cock-mtproxy-monitor.service`](../systemd/cock-mtproxy-monitor.service) |
 | `python -m cock_monitor mtproxy-daily` | `--env-file`, `--hours`, `--send-telegram`, `--output`; env: `MTPROXY_*`, `METRICS_DB`, `TELEGRAM_*` | PNG + caption, опционально Telegram фото | Чтение `mtproxy_metrics` из `METRICS_DB` | [`systemd/cock-mtproxy-daily.timer`](../systemd/cock-mtproxy-daily.timer) -> [`systemd/cock-mtproxy-daily.service`](../systemd/cock-mtproxy-daily.service), плюс `/mt_today` |
 | [`bin/cock-cpu-shaper.sh`](../bin/cock-cpu-shaper.sh) | `--dry-run`; env: `SHAPER_*`, `TELEGRAM_*` | stdout one-line статус, exit code | `tc`/`ip` изменения qdisc/class/filter; запись `SHAPER_STATE_FILE` и `SHAPER_STATUS_FILE`; Telegram при step_up/step_down | [`systemd/cock-shaper.timer`](../systemd/cock-shaper.timer) -> [`systemd/cock-shaper.service`](../systemd/cock-shaper.service) |
-| [`bin/incident-sampler.sh`](../bin/incident-sampler.sh) -> `python -m cock_monitor.services.incident_sampler` | env: `INCIDENT_*`, `TELEGRAM_*` | JSONL срезы, опционально Telegram | Чтение ping/DNS/TCP probe/conntrack/systemd; запись `${INCIDENT_LOG_DIR}/incident-YYYYMMDD.jsonl` и `INCIDENT_STATE_FILE`; вызов post-mortem при recovery | [`systemd/cock-monitor-incident-sampler.timer`](../systemd/cock-monitor-incident-sampler.timer) -> [`systemd/cock-monitor-incident-sampler.service`](../systemd/cock-monitor-incident-sampler.service) |
+| `python -m cock_monitor run incident` | env: `INCIDENT_*`, `TELEGRAM_*` | JSONL срезы, опционально Telegram | `modules/incident/` probes + level + postmortem | [`systemd/cock-monitor-incident.timer`](../systemd/cock-monitor-incident.timer) -> [`systemd/cock-monitor-incident.service`](../systemd/cock-monitor-incident.service) |
 | [`bin/incident-postmortem.py`](../bin/incident-postmortem.py) | `START_EPOCH END_EPOCH LOG_DIR HOST [PEAK_LEVEL]` | HTML в stdout | Чтение JSONL из `INCIDENT_LOG_DIR`; сам БД не пишет | Вызывается sampler-ом как подшаг (не отдельный timer) |
 | `python -m telegram_bot --poll-once <env>` | `--poll-once`, env file; env: `TELEGRAM_*`, `COCK_MONITOR_HOME`, `MTPROXY_*` | Ответы на команды в Telegram | Polling `getUpdates`; `/status` через Python service (`cock_monitor.services.status_report`); `/chart` и `/vless_delta` через Python services; `/mt_*` операции с `METRICS_DB` | [`systemd/cock-monitor-telegram-bot.timer`](../systemd/cock-monitor-telegram-bot.timer) -> [`systemd/cock-monitor-telegram-bot.service`](../systemd/cock-monitor-telegram-bot.service) |
 
@@ -70,7 +72,7 @@
 - MTProxy monitor: `cock-mtproxy-monitor.timer` + `cock-mtproxy-monitor.service`.
 - MTProxy daily: `cock-mtproxy-daily.timer` + `cock-mtproxy-daily.service`.
 - CPU shaper: `cock-shaper.timer` + `cock-shaper.service`.
-- Incident sampler: `cock-monitor-incident-sampler.timer` + `cock-monitor-incident-sampler.service`.
+- Incident: `cock-monitor-incident.timer` + `cock-monitor-incident.service`.
 
 ## 4) Критичные пользовательские сценарии для регресса
 
@@ -81,7 +83,7 @@
 5. `/chart` строит PNG из `METRICS_DB` и отправляет фото.
 6. VLESS daily и `/vless_delta` корректно считают дельты и checkpoint.
 7. MTProxy collector пишет метрики/алерты; `/mt_status`, `/mt_today`, `/mt_threshold` работают.
-8. Shaper корректно меняет rate, пишет state/status и не ломает сеть при `SHAPER_ENABLE=0/1`.
+8. Shaper корректно меняет rate, пишет state/status при `shaper` ∈ `ENABLED_MODULES`; no-op если модуль выключен.
 9. Incident sampler пишет JSONL, держит state, на recovery формирует post-mortem.
 
 ## 5) Явные ограничения Stage 0

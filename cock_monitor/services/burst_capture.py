@@ -21,11 +21,10 @@ from cock_monitor.adapters.linux_host import (
     read_process_stats,
     read_sockstat_tcp,
 )
-from cock_monitor.services.incident_sampler import apply_incident_defaults, load_env_overwrite
+from cock_monitor.platform.env_runtime import get_int, get_str, load_env_overwrite
 
 
 def apply_burst_defaults() -> None:
-    apply_incident_defaults()
     os.environ.setdefault("BURST_CAPTURE_LOG_DIR", "/var/lib/cock-monitor")
     os.environ.setdefault("BURST_STATE_FILE", "/var/lib/cock-monitor/burst-capture.state")
     os.environ.setdefault("BURST_ACCESS_LOG_PATH", "/var/log/x-ui/3xipl-ap.log")
@@ -37,20 +36,8 @@ def apply_burst_defaults() -> None:
     os.environ.setdefault("BURST_MAX_DURATION_SEC", "300")
 
 
-def _get_int(name: str, default: int) -> int:
-    raw = os.environ.get(name, str(default)).strip()
-    try:
-        return int(raw)
-    except ValueError:
-        return default
-
-
-def _get_str(name: str, default: str) -> str:
-    return os.environ.get(name, default).strip() or default
-
-
 def state_path() -> Path:
-    return Path(_get_str("BURST_STATE_FILE", "/var/lib/cock-monitor/burst-capture.state"))
+    return Path(get_str("BURST_STATE_FILE", "/var/lib/cock-monitor/burst-capture.state"))
 
 
 def load_state() -> dict[str, str]:
@@ -181,18 +168,19 @@ def collect_sample(
 def run_capture_loop(log_path: Path, duration_sec: int) -> int:
     apply_burst_defaults()
     host = read_hostname_fqdn()
-    port = _get_int("BURST_PROBE_PORT", 443)
-    interval = max(1, _get_int("BURST_SAMPLE_INTERVAL_SEC", 1))
-    xray_match = _get_str("BURST_XRAY_PROCESS_MATCH", "xray")
-    client_ip = _get_str("BURST_CLIENT_IP", "")
-    access_path = Path(_get_str("BURST_ACCESS_LOG_PATH", "/var/log/x-ui/3xipl-ap.log"))
-    error_path = Path(_get_str("BURST_ERROR_LOG_PATH", "/var/log/x-ui/error.log"))
+    port = get_int("BURST_PROBE_PORT", 443)
+    interval = max(1, get_int("BURST_SAMPLE_INTERVAL_SEC", 1))
+    xray_match = get_str("BURST_XRAY_PROCESS_MATCH", "xray")
+    client_ip = get_str("BURST_CLIENT_IP", "")
+    access_path = Path(get_str("BURST_ACCESS_LOG_PATH", "/var/log/x-ui/3xipl-ap.log"))
+    error_path = Path(get_str("BURST_ERROR_LOG_PATH", "/var/log/x-ui/error.log"))
 
     tracker = BurstLogTracker()
     if access_path.is_file():
         tracker.access = LogTailState(path=access_path)
     if error_path.is_file():
         tracker.error = LogTailState(path=error_path)
+    tracker.seek_all_to_end()
 
     stop = False
 
@@ -238,14 +226,14 @@ def run_capture_loop(log_path: Path, duration_sec: int) -> int:
 
 
 def make_log_path() -> Path:
-    log_dir = Path(_get_str("BURST_CAPTURE_LOG_DIR", "/var/lib/cock-monitor"))
+    log_dir = Path(get_str("BURST_CAPTURE_LOG_DIR", "/var/lib/cock-monitor"))
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
     return log_dir / f"burst-{stamp}.jsonl"
 
 
 def cmd_start(duration_sec: int) -> int:
     apply_burst_defaults()
-    max_dur = _get_int("BURST_MAX_DURATION_SEC", 300)
+    max_dur = get_int("BURST_MAX_DURATION_SEC", 300)
     duration_sec = min(max(1, duration_sec), max_dur)
     st = load_state()
     pid = int(st.get("pid", "0") or "0")

@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from cock_monitor.platform.telegram.status_provider import PythonStatusProvider
 from cock_monitor.services.status_report import StatusReportError
-from telegram_bot.status_provider import PythonStatusProvider
 
 
 def test_python_status_provider_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -12,7 +12,7 @@ def test_python_status_provider_success(monkeypatch: pytest.MonkeyPatch, tmp_pat
     env_file.write_text("CHECK_CONNTRACK_FILL=0\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        "telegram_bot.status_provider.build_status_report",
+        "cock_monitor.platform.telegram.status_provider.build_core_status",
         lambda _env_file: "ok body",
     )
     provider = PythonStatusProvider(env_file=env_file, timeout_sec=1)
@@ -28,7 +28,7 @@ def test_python_status_provider_maps_domain_error(monkeypatch: pytest.MonkeyPatc
     def _boom(_env_file: Path) -> str:
         raise StatusReportError("cannot build")
 
-    monkeypatch.setattr("telegram_bot.status_provider.build_status_report", _boom)
+    monkeypatch.setattr("cock_monitor.platform.telegram.status_provider.build_core_status", _boom)
     provider = PythonStatusProvider(env_file=env_file, timeout_sec=1)
     ok, body = provider.get_status()
     assert ok is False

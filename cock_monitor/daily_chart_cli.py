@@ -6,10 +6,9 @@ import os
 import sys
 from pathlib import Path
 
-from telegram_bot.telegram_client import TelegramClient
-
 from cock_monitor.config_loader import load_config
 from cock_monitor.env import merge_env_into_process
+from cock_monitor.platform.telegram.client import TelegramClient
 from cock_monitor.services.daily_chart import run_daily_chart
 
 
@@ -78,13 +77,14 @@ def run(argv: list[str] | None = None) -> int:
     if args.send_telegram:
         token = loaded.app.telegram.bot_token
         chat = loaded.app.telegram.chat_id
+        proxy = loaded.app.telegram.proxy_url.strip() or None
         if not token or not chat:
             print(
                 "cock-daily-chart: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID required",
                 file=sys.stderr,
             )
             return 1
-        client = TelegramClient(token)
+        client = TelegramClient(token, proxy_url=proxy)
         try:
             client.send_photo(chat, out_path, caption=caption)
         except RuntimeError as e:

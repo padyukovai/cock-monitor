@@ -9,14 +9,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from mtproxy_module.charts import generate_mtproxy_chart
-from mtproxy_module.config import MtproxyConfig
-from mtproxy_module.formatting import MSK_TZ
-from mtproxy_module.reports import build_period_caption
-from mtproxy_module.repository import connect_db, init_schema, summary_rows
-from telegram_bot.telegram_client import TelegramClient
-
 from cock_monitor.config_loader import load_config
+from cock_monitor.modules.mtproxy.charts import generate_mtproxy_chart
+from cock_monitor.modules.mtproxy.config import MtproxyConfig
+from cock_monitor.modules.mtproxy.formatting import MSK_TZ
+from cock_monitor.modules.mtproxy.reports import build_period_caption
+from cock_monitor.modules.mtproxy.repository import connect_db, init_schema, summary_rows
+from cock_monitor.platform.telegram.client import TelegramClient
 
 
 def run(argv: list[str] | None = None) -> int:
@@ -69,11 +68,12 @@ def run(argv: list[str] | None = None) -> int:
     if args.send_telegram:
         token = loaded.app.telegram.bot_token
         chat_id = loaded.app.telegram.chat_id
+        proxy = loaded.app.telegram.proxy_url.strip() or None
         if not token or not chat_id:
             print("cock-mtproxy-daily: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required", file=sys.stderr)
             conn.close()
             return 1
-        client = TelegramClient(token)
+        client = TelegramClient(token, proxy_url=proxy)
         try:
             client.send_photo(chat_id, out_path, caption=caption)
         except RuntimeError as e:

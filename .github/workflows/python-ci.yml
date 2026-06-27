@@ -20,7 +20,7 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Ruff
-        run: ruff check cock_monitor mtproxy_module telegram_bot tests
+        run: ruff check cock_monitor tests
 
       - name: Pytest
         run: pytest

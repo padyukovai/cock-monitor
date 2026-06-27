@@ -1,0 +1,11 @@
+[Unit]
+Description=Run cock-monitor MTProxy every 5 minutes
+Documentation=file:///opt/cock-monitor/README.md
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+Unit=cock-monitor-mtproxy.service
+
+[Install]
+WantedBy=timers.target

@@ -109,3 +109,117 @@
 - Критерии готовности этапа: выполнены.
 - Риски/хвосты: production e2e smoke (`/status`, `/chart`, `/vless_delta`, `/mt_*`) после выката.
 - Готовность к следующему этапу: да.
+
+## Отчёт по фазе 7
+
+- Цель фазы: единый источник включения модулей — только `ENABLED_MODULES`; legacy-флаги удалены из кода и конфигов.
+- Структурные изменения:
+  - `bin/cock-cpu-shaper.sh` — `shaper` в `ENABLED_MODULES` only;
+  - `incident_sampler._incident_enabled()` и `MtproxyConfig` — `module_enabled()` only;
+  - `configure_cli` strip `MTPROXY_ENABLE`, `INCIDENT_SAMPLER_ENABLE`, `SHAPER_ENABLE`, `INCIDENT_HOP_LINKS` on apply;
+  - docs/config без deprecated fallback.
+- Зачем: timer и логика совпадают; один способ включения.
+- Изменённые файлы: `bin/cock-cpu-shaper.sh`, `cock_monitor/services/incident_sampler.py`, `cock_monitor/modules/mtproxy/config.py`, `cock_monitor/configure_cli.py`, `config.example.env`, `config/fragments/{incident,shaper}.env`, `config.minimal.env`, `install/install-ubuntu-minimal.sh`, `README.md`, `docs/v2-migration.md`, `tests/test_module_enable.py`.
+- Breaking changes: да — `SHAPER_ENABLE` / `INCIDENT_SAMPLER_ENABLE` / `MTPROXY_ENABLE` больше не читаются.
+- Регресс: smoke ok; pytest — на CI.
+- Критерии готовности: выполнены.
+- Готовность к фазе 8: да.
+
+## Отчёт по фазе 8
+
+- Цель фазы: install ставит daily timers по включённым модулям; матрица профилей (Helsinki → `stack-mtproxy`).
+- Структурные изменения:
+  - `ModuleSpec.daily_service_unit` / `daily_timer_unit` + `ModuleRegistry.install_systemd_units()`;
+  - `cock_monitor/platform/daily_runners.py` — маппинг daily service → CLI;
+  - `install_cli` использует registry и пишет ExecStart override для daily units;
+  - vless переведён на `cock-vless-daily.*` (единый daily unit);
+  - профиль `stack-exit-node` (alias `stack-3xui`).
+- Зачем: daily chart / vless / mtproxy отчёты ставятся автоматически при install, без ручного копирования legacy timers.
+- Изменённые файлы: `cock_monitor/platform/registry.py`, `platform/daily_runners.py` (new), `install_cli.py`, `modules/{core,vless,mtproxy}/register.py`, `config/profiles/stack-exit-node.env` (new), `install/profiles.md`, `DEPLOY.md`, `tests/test_install_cli.py` (new).
+- Breaking changes: да (vless systemd units: `cock-monitor-vless.*` → `cock-vless-daily.*`; при redeploy v2 install подхватит новые имена).
+- Миграции данных: нет.
+- Обновления документации: `install/profiles.md`, `DEPLOY.md`.
+- Регресс: smoke `collect_install_units` для stack-3xui/mtproxy/rf3/exit-node ok; `tests/test_install_cli.py` добавлен.
+- Критерии готовности: выполнены.
+- Готовность к фазе 9: да.
+
+## Отчёт по фазе 9
+
+- Цель фазы: `HOP_LINKS` only; hop-алерты только из модуля `hop`; incident — JSONL/post-mortem.
+- Структурные изменения:
+  - `resolve_hop_links_raw()` читает только `HOP_LINKS` (`INCIDENT_HOP_LINKS` игнорируется);
+  - `incident_hop_level_enabled()` — incident не эскалирует по hop при `hop` ∈ `ENABLED_MODULES`;
+  - `stack-rf3` без `INCIDENT_HOP_LINKS`;
+  - `enable-incident-sampler.sh` → v2 `cock-monitor-incident.*` + `ENABLED_MODULES`.
+- Зачем: RF3 без двойных Telegram; Germany без hop — incident может алертить по `HOP_LINKS` + `INCIDENT_HOP_*`.
+- Изменённые файлы: `adapters/hop_links.py`, `services/incident_sampler.py`, `modules/hop/service.py`, `config/profiles/stack-rf3.env`, `config/fragments/{incident,hop}.env`, `config.example.env`, `install/profiles.md`, `install/incident/enable-incident-sampler.sh`, `docs/burst-diagnosis-london.md`, `DEPLOY.md`, `README.md`, `tests/test_incident_hop_dedup.py`.
+- Breaking changes: да — `INCIDENT_HOP_LINKS` удалён; redeploy с `HOP_LINKS`.
+- Регресс: `tests/test_incident_hop_dedup.py` smoke ok.
+- Критерии готовности: выполнены.
+- Готовность к фазе 10: да.
+
+## Политика legacy (уточнение после фаз 7–9)
+
+- Без deprecated fallback и обратной совместимости в коде.
+- Фаза 13 — полная чистка shim/units/bin (см. [`architecture-improvement-plan.md`](architecture-improvement-plan.md)).
+
+## Отчёт по фазе 10
+
+- Цель фазы: incident как полноценный модуль в `modules/incident/`.
+- Структурные изменения:
+  - перенос логики из `services/incident_sampler.py` в `modules/incident/{env,probes,level,postmortem,sampler,service}.py`;
+  - `run_cli` → `modules.incident.service.run_incident_tick`;
+  - удалены `services/incident_sampler.py`, `bin/incident-sampler.sh`, `systemd/cock-monitor-incident-sampler.*`.
+- Зачем: симметрия с hop/mtproxy/vless; один entrypoint `run incident`.
+- Изменённые файлы: `cock_monitor/modules/incident/*` (new split), `run_cli.py`, `services/burst_capture.py`, удалённые legacy paths, `tests/test_incident_sampler.py`, `tests/test_incident_hop_dedup.py`, `tests/test_module_enable.py`, `docs/stage-5-unified-boundaries.md`, `docs/stage-0-inventory-and-contracts.md`, `config.example.env`.
+- Breaking changes: да — `python -m cock_monitor.services.incident_sampler` и `bin/incident-sampler.sh` удалены.
+- Регресс: smoke import/run_once ok; pytest — на CI.
+- Критерии готовности: выполнены.
+- Готовность к фазе 11: да.
+
+## Отчёт по фазе 11
+
+- Цель фазы: декларативные post-install / preflight по профилю роли.
+- Структурные изменения:
+  - `POST_INSTALL_SCRIPTS`, `PREFLIGHT_SYSTEMD_UNITS`, `PREFLIGHT_TCP_PORTS` в профилях RF3/RF2/Helsinki;
+  - `platform/profile_ops.py` (`load_profile_ops`, checklist);
+  - `build_env_from_profile` не пишет ops-ключи в runtime env;
+  - `install_cli` печатает checklist + `--run-post-install`;
+  - `preflight --profile` проверяет systemd units и TCP ports.
+- Зачем: оператор видит оставшиеся шаги после install; preflight до/после деплоя по роли.
+- Изменённые файлы: `platform/config.py`, `platform/profile_ops.py` (new), `install_cli.py`, `preflight.py`, `config/profiles/{stack-rf3,stack-rf2-wg,stack-mtproxy}.env`, `install/profiles.md`, `install/rf3/README.md` (new), `tests/test_profile_ops.py` (new).
+- Breaking changes: нет.
+- Регресс: `tests/test_profile_ops.py` smoke ok.
+- Критерии готовности: выполнены.
+- Готовность к фазе 12: да.
+
+## Отчёт по фазе 12
+
+- Цель фазы: именованные роли, валидация профилей, lean mtproxy.
+- Структурные изменения:
+  - `platform/roles.py` — `ROLE_PRESETS`, `profile_for_role`, `resolve_install_profile`;
+  - `platform/profile_validation.py` — `validate_profile_env`;
+  - `install --role` sugar; `config-check --profile`;
+  - `stack-mtproxy` lean: `LA_ALERT_ENABLE=0`, `MEM_ALERT_ENABLE=0`, `ALERT_ON_STATS_DELTA=0`.
+- Зачем: проще деплой по роли; раннее обнаружение несогласованных профилей; Helsinki без лишних core-алертов.
+- Изменённые файлы: `platform/roles.py` (new), `platform/profile_validation.py` (new), `install_cli.py`, `config_check_cli.py`, `config_loader.py`, `config/profiles/stack-mtproxy.env`, `install/profiles.md`, `tests/test_roles.py` (new).
+- Breaking changes: нет.
+- Регресс: `tests/test_roles.py` smoke ok.
+- Критерии готовности: выполнены.
+- Готовность к фазе 13: да.
+
+## Отчёт по фазе 13
+
+- Цель фазы: безжалостная legacy cleanup — один канонический путь для каждой операции.
+- Структурные изменения:
+  - удалены shim-пакеты `mtproxy_module/`, `telegram_bot/`; код в `cock_monitor/modules/mtproxy/`, `cock_monitor/platform/telegram/`;
+  - удалены v1 systemd units из repo (`cock-monitor.service`, `cock-shaper.*`, `cock-mtproxy-monitor.*`, `cock-monitor-telegram-bot.*`, `cock-monitor-vless.*`, `cock-monitor-incident-sampler.*`);
+  - удалены `configure_cli.py`, `install-ubuntu-minimal.sh`, `lib/incident-metrics.sh`, `bin/incident-sampler.sh`;
+  - `burst-capture` и `telegram` subcommands в `__main__.py`; JSONL tag `"sampler": "incident"`;
+  - docs sync: README, DEPLOY, install/*, stage-0 banner, tasks-vpn-quality, stabilize-vps → v2 units.
+- Зачем: нет дублирующих entrypoints и legacy env; проще деплой и сопровождение.
+- Изменённые файлы: см. git diff (cock_monitor/*, systemd/, install/, docs/, tests/, pyproject.toml).
+- Breaking changes: да — v1 units/shims/configure wizard удалены; redeploy через `install/install.sh`.
+- Регресс: `burst-capture --help`, grep без shim-импортов, legacy keys только в `LEGACY_UNITS`/migration doc.
+- Критерии готовности: выполнены.
+- План фаз 7–13: завершён.

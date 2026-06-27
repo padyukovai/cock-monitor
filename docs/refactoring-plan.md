@@ -272,6 +272,7 @@ mtproxy_module/
 
 ## 8) Связанные документы
 
+- [`docs/architecture-improvement-plan.md`](architecture-improvement-plan.md) — фазы 7–13 (post-v2 модульность, профили, hop/incident, ops)
 - [`docs/stage-0-inventory-and-contracts.md`](stage-0-inventory-and-contracts.md)
 - [`README.md`](../README.md)
 - [`DEPLOY.md`](../DEPLOY.md)

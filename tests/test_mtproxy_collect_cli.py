@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 from typing import Protocol
 
-from cock_monitor.mtproxy_collect_cli import dispatch_mtproxy_alerts
-from mtproxy_module.alerts import AlertCandidate
-from mtproxy_module.repository import can_send_alert, init_schema
-from telegram_bot.telegram_client import DeliveryResult
+from cock_monitor.modules.mtproxy.alerts import AlertCandidate
+from cock_monitor.modules.mtproxy.repository import can_send_alert, init_schema
+from cock_monitor.mtproxy_collect_cli import dispatch_mtproxy_alerts, run
+from cock_monitor.platform.telegram.telegram_client import DeliveryResult
 
 
 class _ClientLike(Protocol):
@@ -49,3 +50,27 @@ def test_dispatch_records_only_successful_alerts() -> None:
     rows = conn.execute("SELECT alert_type, alert_key FROM mtproxy_alerts ORDER BY id").fetchall()
     assert rows == [("critical_leak", "global")]
     assert can_send_alert(conn, "warning_ip", "1.1.1.1", 30) is True
+
+
+def test_run_stores_metrics_without_telegram_credentials(tmp_path: Path) -> None:
+    env_file = tmp_path / "cock-monitor.env"
+    db_path = tmp_path / "metrics.db"
+    env_file.write_text(
+        "\n".join(
+            [
+                "ENABLED_MODULES=core,mtproxy",
+                "MTPROXY_PORT=8443",
+                f"METRICS_DB={db_path}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert run(["--env-file", str(env_file)]) == 0
+
+    conn = sqlite3.connect(db_path)
+    row = conn.execute("SELECT total_connections, unique_ips FROM mtproxy_metrics").fetchone()
+    conn.close()
+    assert row is not None
+    assert row[0] >= 0
+    assert row[1] >= 0
