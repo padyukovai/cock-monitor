@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from cock_monitor.adapters import hop_links as hl
-from cock_monitor.modules.incident import level, probes, sampler
+from cock_monitor.modules.incident import level, sampler
 
 
 def test_resolve_hop_links_raw_reads_hop_links_only() -> None:
@@ -65,16 +65,15 @@ def test_run_once_writes_hop_links_but_ok_level_with_hop_module(
         "links": [{"name": "germany", "estab": 99, "fin_wait": 0, "error": ""}],
     }
 
-    monkeypatch.setattr(probes, "collect_hop_links", lambda: hop_data)
-    monkeypatch.setattr(sampler, "collect_hop_links", lambda: hop_data)
-    monkeypatch.setattr(probes, "collect_ping_legacy", lambda *_a, **_k: ([], 0))
-    monkeypatch.setattr(probes, "collect_ping_groups", lambda: [])
-    monkeypatch.setattr(probes, "collect_dns", lambda *_a, **_k: (1, 10, ""))
-    monkeypatch.setattr(probes, "collect_conntrack", lambda: (0, 0, 0))
-    monkeypatch.setattr(probes, "collect_tcp_states", lambda: {
-        "estab": 0, "syn_recv": 0, "time_wait": 0, "fin_wait": 0, "close_wait": 0, "orphan": 0,
-    })
-    monkeypatch.setattr(probes, "collect_tcp_probes", lambda: {
+    tcp_states = {
+        "estab": 0,
+        "syn_recv": 0,
+        "time_wait": 0,
+        "fin_wait": 0,
+        "close_wait": 0,
+        "orphan": 0,
+    }
+    tcp_probe = {
         "enabled": 0,
         "totals": {
             "all": {"total": 0, "fails": 0},
@@ -82,12 +81,17 @@ def test_run_once_writes_hop_links_but_ok_level_with_hop_module(
             "external": {"total": 0, "fails": 0},
         },
         "targets": {"local": "", "external": ""},
-    })
-    monkeypatch.setattr(
-        "cock_monitor.adapters.linux_host.read_load_mem_from_proc",
-        lambda: (0.1, 100000),
-    )
-    monkeypatch.setattr(probes, "collect_units", lambda: {})
+    }
+    # Patch sampler.* — run_once uses direct imports, not probes module attributes.
+    monkeypatch.setattr(sampler, "collect_hop_links", lambda: hop_data)
+    monkeypatch.setattr(sampler, "collect_ping_legacy", lambda *_a, **_k: ([], 0))
+    monkeypatch.setattr(sampler, "collect_ping_groups", lambda: [])
+    monkeypatch.setattr(sampler, "collect_dns", lambda *_a, **_k: (1, 10, ""))
+    monkeypatch.setattr(sampler, "collect_conntrack", lambda: (0, 0, 0))
+    monkeypatch.setattr(sampler, "collect_tcp_states", lambda: tcp_states)
+    monkeypatch.setattr(sampler, "collect_tcp_probes", lambda: tcp_probe)
+    monkeypatch.setattr(sampler, "collect_units", lambda: {})
+    monkeypatch.setattr(sampler, "read_load_mem_from_proc", lambda: (0.1, 100000))
     monkeypatch.setattr("cock_monitor.modules.incident.postmortem.state_load", lambda _p: {})
     monkeypatch.setattr("cock_monitor.modules.incident.postmortem.state_save", lambda *_a, **_k: None)
     monkeypatch.setattr("cock_monitor.modules.incident.postmortem.maybe_alert", lambda *_a, **_k: None)
