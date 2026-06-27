@@ -1,7 +1,9 @@
 # RF3 (hop-gateway) post-install
 
-Profile `stack-rf3` installs cock-monitor modules (`core`, `hop`, `incident`).  
+Profile `stack-rf3` installs cock-monitor modules (`core`, `hop`, `incident`, `vless`).  
 Hop SOCKS probes and Telegram egress via proxy are **not** part of modular install.
+
+For per-hop traffic in VLESS daily reports, enable Xray outbound stats in 3x-ui (`statsOutboundUplink` / `statsOutboundDownlink` in policy.system).
 
 ## After `install.sh --profile stack-rf3`
 

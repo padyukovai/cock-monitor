@@ -27,13 +27,15 @@ def test_stack_mtproxy_installs_mtproxy_daily_timer() -> None:
     assert "cock-vless-daily.timer" not in units
 
 
-def test_stack_rf3_no_daily_except_core() -> None:
+def test_stack_rf3_installs_vless_daily_timer() -> None:
     env = build_env_from_profile("stack-rf3")
     units = collect_install_units(env)
     assert "cock-monitor-daily.timer" in units
-    assert "cock-vless-daily.timer" not in units
+    assert "cock-vless-daily.timer" in units
+    assert "cock-vless-daily.service" in units
     assert "cock-mtproxy-daily.timer" not in units
     assert "cock-monitor-hop.timer" in units
+    assert env["XUI_DB_PATH"] == "/etc/x-ui/x-ui.db"
 
 
 def test_stack_exit_node_alias_matches_3xui_modules() -> None:

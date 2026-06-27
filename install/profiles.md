@@ -4,7 +4,7 @@
 
 | Role | Profile | Modules | Typical VPS |
 |------|---------|---------|-------------|
-| `hop-gateway` | `stack-rf3` | core, hop, incident | RF3 |
+| `hop-gateway` | `stack-rf3` | core, hop, incident, vless | RF3 |
 | `exit-node` | `stack-exit-node` | core, vless, incident, shaper | Germany, USA, London |
 | `mtproxy-only` | `stack-mtproxy` | core, mtproxy | Helsinki |
 | `wg-relay` | `stack-rf2-wg` | core, wg, incident | RF2 |
@@ -23,7 +23,7 @@
 | Helsinki | `cock-helsinki` | `stack-mtproxy` | core, mtproxy |
 | RF1 | `whitelisthack` | `stack-rf1` | core, incident |
 | RF2 | `rf2` | `stack-rf2-wg` | core, wg, incident |
-| RF3 | `cock-rf3` | `stack-rf3` | core, incident, hop |
+| RF3 | `cock-rf3` | `stack-rf3` | core, incident, hop, vless |
 
 `stack-exit-node` is an alias of `stack-3xui` (readable name for DE/US exit nodes).
 
@@ -33,7 +33,7 @@ Daily timers installed automatically by profile:
 |---------|----------------|
 | `stack-3xui` / `stack-exit-node` | `cock-monitor-daily`, `cock-vless-daily` |
 | `stack-mtproxy` | `cock-monitor-daily`, `cock-mtproxy-daily` |
-| `stack-rf3` | `cock-monitor-daily` only |
+| `stack-rf3` | `cock-monitor-daily`, `cock-vless-daily` |
 
 ## Clean redeploy (breaking v2)
 
