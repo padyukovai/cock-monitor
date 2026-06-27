@@ -18,6 +18,13 @@ def format_vless_report(
     ip_counts: dict[str, tuple[int, int]] | None,
     ip_top_k: int,
     ip_truncated: bool,
+    outbound_up: dict[str, int] | None = None,
+    outbound_down: dict[str, int] | None = None,
+    outbound_total: dict[str, int] | None = None,
+    prev_outbound_up: dict[str, int] | None = None,
+    prev_outbound_down: dict[str, int] | None = None,
+    prev_outbound_total: dict[str, int] | None = None,
+    hop_tags: set[str] | None = None,
 ) -> tuple[str, int, int, str, int]:
     return build_report(
         host=host,
@@ -32,6 +39,13 @@ def format_vless_report(
         ip_counts=ip_counts,
         ip_top_k=ip_top_k,
         ip_truncated=ip_truncated,
+        outbound_up=outbound_up,
+        outbound_down=outbound_down,
+        outbound_total=outbound_total,
+        prev_outbound_up=prev_outbound_up,
+        prev_outbound_down=prev_outbound_down,
+        prev_outbound_total=prev_outbound_total,
+        hop_tags=hop_tags,
     )
 
 

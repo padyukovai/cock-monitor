@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import Literal
 
 from cock_monitor.adapters.vless_access_log import collect_access_log_ip_summary
+from cock_monitor.adapters.vless_outbound_traffic import (
+    collect_outbound_traffic_rows,
+    outbound_rows_to_maps,
+)
 from cock_monitor.adapters.vless_report_formatter import (
     build_vless_top_downloaders,
     format_vless_report,
@@ -28,10 +32,14 @@ from cock_monitor.storage.vless_repository import (
     ensure_report_tables,
     get_checkpoint_map,
     get_last_sent_checkpoint_ts,
+    get_outbound_checkpoint_maps,
+    get_outbound_snapshot_maps,
     get_snapshot_map,
     save_checkpoint,
+    save_outbound_checkpoint,
     save_report_meta,
     transaction,
+    upsert_outbound_snapshot,
     upsert_snapshot,
 )
 
@@ -97,6 +105,10 @@ def run_vless_report_use_case(
     try:
         all_rows = fetch_client_traffics(xui_conn)
         vless_emails = fetch_vless_email_set(xui_conn)
+        outbound_rows, hop_tags, outbound_source = collect_outbound_traffic_rows(
+            xui_conn,
+            env=raw,
+        )
     except sqlite3.Error as e:
         raise VlessReportError(f"query x-ui.db failed: {e}") from e
     finally:
@@ -121,15 +133,34 @@ def run_vless_report_use_case(
         with transaction(met_conn):
             ensure_report_tables(met_conn)
             upsert_snapshot(met_conn, snapshot_day_msk=snapshot_day, ts=ts, rows=rows)
+            if outbound_rows:
+                upsert_outbound_snapshot(
+                    met_conn,
+                    snapshot_day_msk=snapshot_day,
+                    ts=ts,
+                    rows=outbound_rows,
+                )
             current_map = {r.email: r.total for r in rows}
+            current_out_up, current_out_down, current_out_total = outbound_rows_to_maps(
+                outbound_rows
+            )
             last_sent_ts: int | None = None
             if mode == "daily":
                 prev_map = get_snapshot_map(met_conn, prev_day)
+                prev_out_up, prev_out_down, prev_out_total = get_outbound_snapshot_maps(
+                    met_conn,
+                    prev_day,
+                )
                 report_title = f"VLESS daily usage ({tz_name}): {usage_day}"
                 report_subtitle = "Delta period: previous day snapshot -> current snapshot"
             else:
                 last_sent_ts = get_last_sent_checkpoint_ts(met_conn, source="since_last_sent")
                 prev_map = get_checkpoint_map(met_conn, last_sent_ts) if last_sent_ts else {}
+                prev_out_up, prev_out_down, prev_out_total = (
+                    get_outbound_checkpoint_maps(met_conn, last_sent_ts)
+                    if last_sent_ts
+                    else ({}, {}, {})
+                )
                 if last_sent_ts:
                     last_dt = (
                         datetime.fromtimestamp(last_sent_ts, tz=UTC)
@@ -192,7 +223,28 @@ def run_vless_report_use_case(
                 ip_counts=ip_counts,
                 ip_top_k=ip_top_k,
                 ip_truncated=ip_truncated,
+                outbound_up=current_out_up if hop_tags else None,
+                outbound_down=current_out_down if hop_tags else None,
+                outbound_total=current_out_total if hop_tags else None,
+                prev_outbound_up=prev_out_up if hop_tags and prev_map else None,
+                prev_outbound_down=prev_out_down if hop_tags and prev_map else None,
+                prev_outbound_total=prev_out_total if hop_tags and prev_map else None,
+                hop_tags=hop_tags or None,
             )
+
+            if hop_tags and outbound_source and outbound_source not in {"db", "xray_api"}:
+                print(
+                    "cock-vless-daily-report: "
+                    f"outbound_hops_configured={','.join(sorted(hop_tags))} "
+                    f"outbound_source={outbound_source}",
+                    file=sys.stderr,
+                )
+            elif hop_tags and outbound_source:
+                print(
+                    "cock-vless-daily-report: "
+                    f"outbound_hops={len(outbound_rows)} source={outbound_source}",
+                    file=sys.stderr,
+                )
 
             if dry_run or not send_telegram:
                 print(report_text)
@@ -247,6 +299,12 @@ def run_vless_report_use_case(
                 sent_ok = True
                 if mode == "since-last-sent":
                     save_checkpoint(met_conn, ts=ts, rows=rows, source="since_last_sent")
+                    save_outbound_checkpoint(
+                        met_conn,
+                        ts=ts,
+                        rows=outbound_rows,
+                        source="since_last_sent",
+                    )
 
             if report_text:
                 save_report_meta(

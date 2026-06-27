@@ -46,6 +46,15 @@ class DeltaEntry:
     reset_detected: bool
 
 
+@dataclass(frozen=True)
+class OutboundDeltaEntry:
+    tag: str
+    delta_up: int
+    delta_down: int
+    delta_total: int
+    reset_detected: bool
+
+
 def compute_delta_entries(
     current_map: dict[str, int],
     prev_map: dict[str, int],
@@ -71,6 +80,76 @@ def compute_delta_entries(
         )
     deltas.sort(key=lambda x: x.delta_total, reverse=True)
     return deltas, total_delta, reset_count
+
+
+SYSTEM_OUTBOUND_TAGS = frozenset({"direct", "blocked", "freedom", "blackhole", "api"})
+
+
+def is_hop_outbound_tag(tag: str, *, hop_tags: set[str] | None = None) -> bool:
+    normalized = tag.strip().lower()
+    if not normalized or normalized in SYSTEM_OUTBOUND_TAGS:
+        return False
+    if hop_tags is None:
+        return True
+    return normalized in hop_tags
+
+
+def compute_outbound_delta_entries(
+    current_up: dict[str, int],
+    current_down: dict[str, int],
+    current_total: dict[str, int],
+    prev_up: dict[str, int],
+    prev_down: dict[str, int],
+    prev_total: dict[str, int],
+    *,
+    hop_tags: set[str] | None = None,
+) -> list[OutboundDeltaEntry]:
+    tags = set(current_total) | set(prev_total)
+    deltas: list[OutboundDeltaEntry] = []
+    for tag in tags:
+        if not is_hop_outbound_tag(tag, hop_tags=hop_tags):
+            continue
+        cur_total = current_total.get(tag, 0)
+        prev_total_val = prev_total.get(tag, 0)
+        raw_delta = cur_total - prev_total_val
+        reset_detected = raw_delta < 0
+        delta_total = raw_delta if raw_delta > 0 else 0
+        raw_up = current_up.get(tag, 0) - prev_up.get(tag, 0)
+        raw_down = current_down.get(tag, 0) - prev_down.get(tag, 0)
+        delta_up = raw_up if raw_up > 0 else 0
+        delta_down = raw_down if raw_down > 0 else 0
+        deltas.append(
+            OutboundDeltaEntry(
+                tag=tag,
+                delta_up=delta_up,
+                delta_down=delta_down,
+                delta_total=delta_total,
+                reset_detected=reset_detected,
+            )
+        )
+    deltas.sort(key=lambda x: x.delta_total, reverse=True)
+    return deltas
+
+
+def format_outbound_hops_section(
+    entries: list[OutboundDeltaEntry],
+    *,
+    total_hop_delta: int,
+) -> list[str]:
+    active = [item for item in entries if item.delta_total > 0]
+    if not active:
+        return []
+    lines = ["", "<b>Outbound hops</b>:"]
+    for idx, item in enumerate(active, start=1):
+        share = (item.delta_total * 100.0 / total_hop_delta) if total_hop_delta > 0 else 0.0
+        lines.append(
+            f"{idx}) <code>{html.escape(item.tag, quote=False)}</code> — "
+            f"<b>{fmt_bytes(item.delta_total)}</b> "
+            f"(↑<code>{fmt_bytes(item.delta_up)}</code> / "
+            f"↓<code>{fmt_bytes(item.delta_down)}</code>) "
+            f"(<code>{share:.1f}%</code>)"
+        )
+    return lines
 
 
 def top_downloaders_by_delta_total(
@@ -310,6 +389,13 @@ def build_report(
     ip_counts: dict[str, tuple[int, int]] | None = None,
     ip_top_k: int = 3,
     ip_truncated: bool = False,
+    outbound_up: dict[str, int] | None = None,
+    outbound_down: dict[str, int] | None = None,
+    outbound_total: dict[str, int] | None = None,
+    prev_outbound_up: dict[str, int] | None = None,
+    prev_outbound_down: dict[str, int] | None = None,
+    prev_outbound_total: dict[str, int] | None = None,
+    hop_tags: set[str] | None = None,
 ) -> tuple[str, int, int, str, int]:
     def esc(s: str) -> str:
         return html.escape(s, quote=False)
@@ -339,6 +425,28 @@ def build_report(
         f"<b>Active clients:</b> <code>{active}</code> | "
         f"<b>Top1 share:</b> <code>{top1_share:.1f}%</code>"
     )
+
+    if (
+        outbound_total is not None
+        and prev_outbound_total is not None
+        and outbound_up is not None
+        and outbound_down is not None
+        and prev_outbound_up is not None
+        and prev_outbound_down is not None
+    ):
+        outbound_entries = compute_outbound_delta_entries(
+            outbound_up,
+            outbound_down,
+            outbound_total,
+            prev_outbound_up,
+            prev_outbound_down,
+            prev_outbound_total,
+            hop_tags=hop_tags,
+        )
+        total_hop_delta = sum(item.delta_total for item in outbound_entries)
+        lines.extend(
+            format_outbound_hops_section(outbound_entries, total_hop_delta=total_hop_delta)
+        )
 
     lines.append("")
     lines.append(f"<b>Top {max(1, top_n)} downloaders</b>:")

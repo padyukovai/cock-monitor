@@ -5,7 +5,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from cock_monitor.adapters.xui_sqlite import TrafficRow, safe_i64
+from cock_monitor.adapters.xui_sqlite import OutboundTrafficRow, TrafficRow, safe_i64
 
 
 def ensure_report_tables(conn: sqlite3.Connection) -> None:
@@ -58,6 +58,44 @@ def ensure_report_tables(conn: sqlite3.Connection) -> None:
         ON vless_report_checkpoints(ts)
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS vless_outbound_snapshots (
+            snapshot_day_msk TEXT NOT NULL,
+            ts INTEGER NOT NULL,
+            tag TEXT NOT NULL,
+            up_bytes INTEGER NOT NULL,
+            down_bytes INTEGER NOT NULL,
+            total_bytes INTEGER NOT NULL,
+            PRIMARY KEY (snapshot_day_msk, tag)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_vless_outbound_snapshots_ts
+        ON vless_outbound_snapshots(ts)
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS vless_outbound_checkpoints (
+            ts INTEGER NOT NULL,
+            tag TEXT NOT NULL,
+            up_bytes INTEGER NOT NULL,
+            down_bytes INTEGER NOT NULL,
+            total_bytes INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            PRIMARY KEY (ts, tag)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_vless_outbound_checkpoints_ts
+        ON vless_outbound_checkpoints(ts)
+        """
+    )
 
 
 def upsert_snapshot(
@@ -103,8 +141,7 @@ def get_last_sent_checkpoint_ts(conn: sqlite3.Connection, *, source: str) -> int
         SELECT MAX(ts)
         FROM vless_report_checkpoints
         WHERE source = ?
-        """
-        ,
+        """,
         (source,),
     )
     row = cur.fetchone()
@@ -144,6 +181,95 @@ def save_checkpoint(
         VALUES (?, ?, ?, ?)
         """,
         [(ts, r.email, r.total, source) for r in rows],
+    )
+
+
+def upsert_outbound_snapshot(
+    conn: sqlite3.Connection,
+    *,
+    snapshot_day_msk: str,
+    ts: int,
+    rows: list[OutboundTrafficRow],
+) -> None:
+    if not rows:
+        return
+    conn.executemany(
+        """
+        INSERT INTO vless_outbound_snapshots (
+            snapshot_day_msk, ts, tag, up_bytes, down_bytes, total_bytes
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(snapshot_day_msk, tag) DO UPDATE SET
+            ts = excluded.ts,
+            up_bytes = excluded.up_bytes,
+            down_bytes = excluded.down_bytes,
+            total_bytes = excluded.total_bytes
+        """,
+        [(snapshot_day_msk, ts, r.tag, r.up, r.down, r.total) for r in rows],
+    )
+
+
+def get_outbound_snapshot_maps(
+    conn: sqlite3.Connection,
+    day_msk: str,
+) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+    cur = conn.execute(
+        """
+        SELECT tag, up_bytes, down_bytes, total_bytes
+        FROM vless_outbound_snapshots
+        WHERE snapshot_day_msk = ?
+        """,
+        (day_msk,),
+    )
+    up_map: dict[str, int] = {}
+    down_map: dict[str, int] = {}
+    total_map: dict[str, int] = {}
+    for tag, up, down, total in cur.fetchall():
+        key = str(tag)
+        up_map[key] = safe_i64(up)
+        down_map[key] = safe_i64(down)
+        total_map[key] = safe_i64(total)
+    return up_map, down_map, total_map
+
+
+def get_outbound_checkpoint_maps(
+    conn: sqlite3.Connection,
+    ts: int,
+) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+    cur = conn.execute(
+        """
+        SELECT tag, up_bytes, down_bytes, total_bytes
+        FROM vless_outbound_checkpoints
+        WHERE ts = ?
+        """,
+        (ts,),
+    )
+    up_map: dict[str, int] = {}
+    down_map: dict[str, int] = {}
+    total_map: dict[str, int] = {}
+    for tag, up, down, total in cur.fetchall():
+        key = str(tag)
+        up_map[key] = safe_i64(up)
+        down_map[key] = safe_i64(down)
+        total_map[key] = safe_i64(total)
+    return up_map, down_map, total_map
+
+
+def save_outbound_checkpoint(
+    conn: sqlite3.Connection,
+    *,
+    ts: int,
+    rows: list[OutboundTrafficRow],
+    source: str,
+) -> None:
+    if not rows:
+        return
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO vless_outbound_checkpoints (
+            ts, tag, up_bytes, down_bytes, total_bytes, source
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        [(ts, r.tag, r.up, r.down, r.total, source) for r in rows],
     )
 
 
