@@ -60,7 +60,8 @@ def test_seek_log_to_end_skips_existing(tmp_path: Path) -> None:
     tracker = bal.BurstLogTracker(access=state)
     d0 = tracker.poll_access()
     assert d0.delta_lines == 0 and d0.delta_accepted == 0
-    log.write_text(log.read_text(encoding="utf-8") + "2026/01/01 from 1.1.1.1:1 accepted tcp:x:443 email:t\n", encoding="utf-8")
+    extra = "2026/01/01 from 1.1.1.1:1 accepted tcp:x:443 email:t\n"
+    log.write_text(log.read_text(encoding="utf-8") + extra, encoding="utf-8")
     d1 = tracker.poll_access()
     assert d1.delta_accepted == 1
 

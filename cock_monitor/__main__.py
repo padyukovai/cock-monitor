@@ -75,7 +75,8 @@ def main(argv: list[str] | None = None) -> int:
         return telegram_main()
     if a[:1] in (["help"], ["-h"], ["--help"]):
         print(
-            "Usage: python -m cock_monitor {run|modules|install|uninstall|preflight|config-check|burst-capture|telegram} ...\n"
+            "Usage: python -m cock_monitor "
+            "{run|modules|install|uninstall|preflight|config-check|burst-capture|telegram} ...\n"
             "  run <module> [env_file] [--dry-run]\n"
             "  install --profile stack-3xui [--role exit-node] [--wipe-data]\n"
             "  burst-capture --env-file /etc/cock-monitor.env start --duration 60"

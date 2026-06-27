@@ -19,7 +19,10 @@ def _update(text: str) -> dict[str, object]:
 
 def test_cake_bw_updates_max_rate_in_env(tmp_path: Path) -> None:
     env_file = tmp_path / "cock.env"
-    env_file.write_text("ENABLED_MODULES=core,shaper\nSHAPER_MIN_RATE_MBIT=10\nSHAPER_MAX_RATE_MBIT=100\n", encoding="utf-8")
+    env_file.write_text(
+        "ENABLED_MODULES=core,shaper\nSHAPER_MIN_RATE_MBIT=10\nSHAPER_MAX_RATE_MBIT=100\n",
+        encoding="utf-8",
+    )
     client = _Client()
 
     handle_update(
@@ -37,7 +40,10 @@ def test_cake_bw_updates_max_rate_in_env(tmp_path: Path) -> None:
 
 def test_cake_bw_rejects_below_min_rate(tmp_path: Path) -> None:
     env_file = tmp_path / "cock.env"
-    env_file.write_text("ENABLED_MODULES=core,shaper\nSHAPER_MIN_RATE_MBIT=20\nSHAPER_MAX_RATE_MBIT=100\n", encoding="utf-8")
+    env_file.write_text(
+        "ENABLED_MODULES=core,shaper\nSHAPER_MIN_RATE_MBIT=20\nSHAPER_MAX_RATE_MBIT=100\n",
+        encoding="utf-8",
+    )
     client = _Client()
 
     handle_update(
