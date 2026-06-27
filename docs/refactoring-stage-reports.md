@@ -112,23 +112,17 @@
 
 ## Отчёт по фазе 7
 
-- Цель фазы: единый источник включения модулей — `ENABLED_MODULES` вместо legacy-флагов `SHAPER_ENABLE`, `INCIDENT_SAMPLER_ENABLE`, `MTPROXY_ENABLE`.
+- Цель фазы: единый источник включения модулей — только `ENABLED_MODULES`; legacy-флаги удалены из кода и конфигов.
 - Структурные изменения:
-  - добавлен `cock_monitor/platform/legacy_enable.py` (`resolve_module_enabled`) с deprecated fallback для legacy-флагов;
-  - `bin/cock-cpu-shaper.sh` проверяет `shaper` в `ENABLED_MODULES`;
-  - `incident_sampler._incident_enabled()` и `MtproxyConfig` используют `resolve_module_enabled`;
-  - `configure_cli` пишет `ENABLED_MODULES` при apply и не выставляет legacy-флаги.
-- Зачем: timer модуля и фактическая логика больше не расходятся; `stack-3xui` активирует shaper без отдельного `SHAPER_ENABLE=1`.
-- Изменённые файлы: `cock_monitor/platform/legacy_enable.py` (new), `bin/cock-cpu-shaper.sh`, `cock_monitor/services/incident_sampler.py`, `cock_monitor/modules/mtproxy/config.py`, `cock_monitor/configure_cli.py`, `config.example.env`, `config/fragments/incident.env`, `config/fragments/shaper.env`, `README.md`, `docs/v2-migration.md`, `tests/test_module_enable.py` (new).
-- Breaking changes: нет (legacy-флаги по-прежнему работают с stderr warning).
-- Миграции данных: нет.
-- Обновления документации: `README.md`, `docs/v2-migration.md`, `config.example.env`, фрагменты env.
-- Регресс-проверки:
-  - pytest: не запускался (в `.venv` нет pip/pytest); добавлен `tests/test_module_enable.py`
-  - ruff: не запускался (нет ruff в venv)
-  - smoke: `resolve_module_enabled` import ok; `stack-3xui` + shaper dry-run → активный shaper; disabled без `shaper` в `ENABLED_MODULES` → корректное сообщение
-- Критерии готовности: выполнены (по smoke; pytest — на CI/хосте с dev deps).
-- Риски/хвосты: на серверах с legacy env удалить `SHAPER_ENABLE`/`INCIDENT_SAMPLER_ENABLE`/`MTPROXY_ENABLE` после redeploy; `install/incident/enable-incident-sampler.sh` всё ещё пишет legacy-флаг (вне scope фазы 7).
+  - `bin/cock-cpu-shaper.sh` — `shaper` в `ENABLED_MODULES` only;
+  - `incident_sampler._incident_enabled()` и `MtproxyConfig` — `module_enabled()` only;
+  - `configure_cli` strip `MTPROXY_ENABLE`, `INCIDENT_SAMPLER_ENABLE`, `SHAPER_ENABLE`, `INCIDENT_HOP_LINKS` on apply;
+  - docs/config без deprecated fallback.
+- Зачем: timer и логика совпадают; один способ включения.
+- Изменённые файлы: `bin/cock-cpu-shaper.sh`, `cock_monitor/services/incident_sampler.py`, `cock_monitor/modules/mtproxy/config.py`, `cock_monitor/configure_cli.py`, `config.example.env`, `config/fragments/{incident,shaper}.env`, `config.minimal.env`, `install/install-ubuntu-minimal.sh`, `README.md`, `docs/v2-migration.md`, `tests/test_module_enable.py`.
+- Breaking changes: да — `SHAPER_ENABLE` / `INCIDENT_SAMPLER_ENABLE` / `MTPROXY_ENABLE` больше не читаются.
+- Регресс: smoke ok; pytest — на CI.
+- Критерии готовности: выполнены.
 - Готовность к фазе 8: да.
 
 ## Отчёт по фазе 8
@@ -148,3 +142,23 @@
 - Регресс: smoke `collect_install_units` для stack-3xui/mtproxy/rf3/exit-node ok; `tests/test_install_cli.py` добавлен.
 - Критерии готовности: выполнены.
 - Готовность к фазе 9: да.
+
+## Отчёт по фазе 9
+
+- Цель фазы: `HOP_LINKS` only; hop-алерты только из модуля `hop`; incident — JSONL/post-mortem.
+- Структурные изменения:
+  - `resolve_hop_links_raw()` читает только `HOP_LINKS` (`INCIDENT_HOP_LINKS` игнорируется);
+  - `incident_hop_level_enabled()` — incident не эскалирует по hop при `hop` ∈ `ENABLED_MODULES`;
+  - `stack-rf3` без `INCIDENT_HOP_LINKS`;
+  - `enable-incident-sampler.sh` → v2 `cock-monitor-incident.*` + `ENABLED_MODULES`.
+- Зачем: RF3 без двойных Telegram; Germany без hop — incident может алертить по `HOP_LINKS` + `INCIDENT_HOP_*`.
+- Изменённые файлы: `adapters/hop_links.py`, `services/incident_sampler.py`, `modules/hop/service.py`, `config/profiles/stack-rf3.env`, `config/fragments/{incident,hop}.env`, `config.example.env`, `install/profiles.md`, `install/incident/enable-incident-sampler.sh`, `docs/burst-diagnosis-london.md`, `DEPLOY.md`, `README.md`, `tests/test_incident_hop_dedup.py`.
+- Breaking changes: да — `INCIDENT_HOP_LINKS` удалён; redeploy с `HOP_LINKS`.
+- Регресс: `tests/test_incident_hop_dedup.py` smoke ok.
+- Критерии готовности: выполнены.
+- Готовность к фазе 10: да.
+
+## Политика legacy (уточнение после фаз 7–9)
+
+- Без deprecated fallback и обратной совместимости в коде.
+- Фаза 13 — полная чистка shim/units/bin (см. [`architecture-improvement-plan.md`](architecture-improvement-plan.md)).

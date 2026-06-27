@@ -161,8 +161,6 @@ MTPROXY_ALERT_COOLDOWN_MINUTES=30
 MTPROXY_DAILY_TOP_N=10
 ```
 
-> **Deprecated:** `MTPROXY_ENABLE=1` — используйте `ENABLED_MODULES`.
-
 Команды Telegram (в том же общем `/help`):
 
 - `/mt_status` — текущий статус MTProxy
@@ -385,13 +383,13 @@ Potential heavy downloaders:
 Главная фишка: для ограничения скорости используется встроенный в ядро планировщик **sch_cake** в режиме `dual-dsthost`. Он автоматически делит установленную ширину канала строго поровну между всеми качающими клиентами! Никакого "встал торрент - лег VPN".
 
 - **Конфиг:** блок `SHAPER_*` в [`config.example.env`](config.example.env). Включение: добавить `shaper` в **`ENABLED_MODULES`** (например `ENABLED_MODULES=core,vless,shaper`). Важно указать порты Xray/VPN: `SHAPER_VPN_PORTS=443,2053,37346`.
-- **Расписание:** [`systemd/cock-monitor-shaper.timer`](systemd/cock-monitor-shaper.timer) (v2) или legacy `cock-shaper.timer`.
+- **Расписание:** [`systemd/cock-monitor-shaper.timer`](systemd/cock-monitor-shaper.timer)
 - **Режим выключения:** уберите `shaper` из `ENABLED_MODULES` и отключите timer: `sudo systemctl disable --now cock-monitor-shaper.timer`. Скрипт не меняет `tc` (без teardown), если модуль не включён.
 - **Проверка:** для проверки в холостую: `sudo /opt/cock-monitor/bin/cock-cpu-shaper.sh --dry-run /etc/cock-monitor.env`
 
 ### Incident sampler (короткие постмортем-срезы)
 
-Сервис incident sampler запускает Python-модуль `cock_monitor.services.incident_sampler` (unit: [`systemd/cock-monitor-incident-sampler.service`](systemd/cock-monitor-incident-sampler.service)) и пишет в JSONL короткие срезы состояния сети. Это помогает разбирать минутные деградации VPN/панели по фактам, а не по косвенным признакам.
+Сервис incident запускает `python -m cock_monitor run incident` (unit: [`systemd/cock-monitor-incident.service`](systemd/cock-monitor-incident.service)) и пишет в JSONL короткие срезы состояния сети. Это помогает разбирать минутные деградации VPN/панели по фактам, а не по косвенным признакам.
 
 - **Зависимости:** на хосте должна быть команда **`ping`** (Debian/Ubuntu: пакет **`iputils-ping`**), иначе loss/latency в JSON будут некорректны.
 - **Метрики в срезе:** ping-loss/latency, DNS probe, `nf_conntrack count/max`, TCP state counts, **TCP-probe по прикладным портам** (опционально), `load1`, `MemAvailable`, `systemctl is-active` для выбранных unit.
@@ -402,7 +400,7 @@ Potential heavy downloaders:
   - `external` — `INCIDENT_PING_EXTERNAL_TARGETS`.
   Это диагностическая телеметрия: текущая логика WARN/CRIT по `INCIDENT_PING_LOSS_WARN_PCT` не меняется.
 - **TCP-probe (рекомендуется):** задайте `INCIDENT_TCP_PROBE_PORTS="443 2053 37346"` и оба target: `INCIDENT_TCP_PROBE_LOCAL_TARGET=127.0.0.1` + `INCIDENT_TCP_PROBE_EXTERNAL_TARGET=<PUBLIC_IP_OR_DNS>`. Тогда в каждом срезе считаются отдельные fail-счётчики local/external и общий итог. Пороговые параметры: `INCIDENT_TCP_PROBE_WARN_FAILS`, `INCIDENT_TCP_PROBE_CRIT_FAILS`.
-- **Расписание:** [`systemd/cock-monitor-incident-sampler.timer`](systemd/cock-monitor-incident-sampler.timer) (по умолчанию каждые 10 секунд).
+- **Расписание:** [`systemd/cock-monitor-incident.timer`](systemd/cock-monitor-incident.timer) (по умолчанию каждые 10 секунд).
 - **Логи:** `${INCIDENT_LOG_DIR}/incident-YYYYMMDD.jsonl` (по умолчанию `/var/lib/cock-monitor`).
 - **Проверка вручную:** `cd /opt/cock-monitor && sudo .venv/bin/python -m cock_monitor run incident /etc/cock-monitor.env`
 - **Post-mortem в Telegram:** при переходе **WARN/CRIT → OK** скрипт [`bin/incident-postmortem.py`](bin/incident-postmortem.py) читает JSONL за окно инцидента и отправляет краткий HTML-отчёт (нужны **python3** и `INCIDENT_POSTMORTEM_ENABLE=1`).

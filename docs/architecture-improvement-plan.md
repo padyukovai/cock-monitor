@@ -31,20 +31,36 @@
 
 ---
 
+## Принцип: без legacy и обратной совместимости
+
+Проект маленький и целевой — **один канонический путь** для каждой функции. Не делаем:
+
+- deprecated fallback в коде (`resolve_*` с чтением старых env-ключей);
+- stderr-warning «старый ключ ещё работает»;
+- thin wrapper «на один релиз»;
+- дублирующие systemd units / entrypoints (v1 и v2 параллельно в docs).
+
+**Делаем:** удаляем legacy-ключи, units, shim-пакеты и скрипты; обновляем docs как breaking; redeploy через `install/uninstall.sh`.
+
+Удалённые env-флаги (не читать, не писать): `MTPROXY_ENABLE`, `INCIDENT_SAMPLER_ENABLE`, `SHAPER_ENABLE`, `INCIDENT_HOP_LINKS`.  
+Единственный switch модулей: **`ENABLED_MODULES`**. Hop-линки: **`HOP_LINKS`** only.
+
+---
+
 ## Фаза 7 — Единый источник включения модулей
 
 ### Цели фазы
 
-Устранить рассинхрон **v2 `ENABLED_MODULES`** и **legacy-флагов** (`SHAPER_ENABLE`, `INCIDENT_SAMPLER_ENABLE`, `MTPROXY_ENABLE`). Сейчас timer модуля может крутиться, а логика — no-op. Это ломает доверие к модульной модели и мешает «включил модуль — получил функцию».
+Устранить рассинхрон **v2 `ENABLED_MODULES`** и **удалённых legacy-флагов** (`SHAPER_ENABLE`, `INCIDENT_SAMPLER_ENABLE`, `MTPROXY_ENABLE`). Сейчас timer модуля может крутиться, а логика — no-op. **Без fallback:** старые ключи не читаются.
 
 ### Что меняем структурно и зачем
 
 | Изменение | Файлы (ориентир) | Зачем |
 |-----------|------------------|-------|
-| **Shaper:** при `shaper` в `ENABLED_MODULES` считать модуль активным без `SHAPER_ENABLE` | `bin/cock-cpu-shaper.sh`, `config/fragments/shaper.env`, `cock_monitor/modules/shaper/register.py` | Timer и флаг больше не расходятся; `stack-3xui` начнёт реально шейпить |
-| **Incident:** `_incident_enabled()` только через `module_enabled("incident")`; legacy `INCIDENT_SAMPLER_ENABLE` — deprecated warning | `cock_monitor/services/incident_sampler.py`, `config/fragments/incident.env` | Один источник правды для incident |
-| **MTProxy:** убрать проверки `MTPROXY_ENABLE` в пользу `module_enabled("mtproxy")` | `cock_monitor/modules/mtproxy/config.py`, `cock_monitor/configure_cli.py` (если ещё используется), `config.example.env` | Согласованность с v2 |
-| **Документация:** пометить legacy-флаги как deprecated | `README.md`, `docs/v2-migration.md`, `config.example.env` | Операторы не путают два способа включения |
+| **Shaper:** активен iff `shaper` ∈ `ENABLED_MODULES` | `bin/cock-cpu-shaper.sh`, `config/fragments/shaper.env` | Timer и логика совпадают |
+| **Incident / MTProxy:** `module_enabled()` only | `incident_sampler.py`, `modules/mtproxy/config.py` | Один источник правды |
+| **Удалить** legacy env из example/fragments/install | `config.example.env`, `install-ubuntu-minimal.sh`, `configure_cli` (strip on apply) | Нет двух способов включения |
+| **Docs:** только `ENABLED_MODULES` | `README.md`, `docs/v2-migration.md` | Onboarding без путаницы |
 
 ### Scope (границы)
 
@@ -103,15 +119,15 @@
 
 ### Цели фазы
 
-На RF3 модули `hop` и `incident` **дублируют мониторинг одних и тех же тоннелей** (`HOP_LINKS` / `INCIDENT_HOP_LINKS`, разные пороги, два пути в Telegram). Нужно: один конфиг, один владелец алертов hop, incident — сэмплирование/post-mortem.
+На RF3 модули `hop` и `incident` **дублируют мониторинг одних тоннелей** (разные пороги, два пути в Telegram). Нужно: **`HOP_LINKS` only**, hop-алерты только из `hop`, incident — JSONL/post-mortem.
 
 ### Что меняем структурно и зачем
 
 | Изменение | Файлы (ориентир) | Зачем |
 |-----------|------------------|-------|
-| **Канонический ключ `HOP_LINKS`**; `INCIDENT_HOP_LINKS` — deprecated alias (читать как fallback) | `cock_monitor/adapters/hop_links.py`, `config/fragments/hop.env`, `config/fragments/incident.env`, `config/profiles/stack-rf3.env` | Один источник конфигурации линков |
-| **Incident:** если `hop` в `ENABLED_MODULES` — **не слать hop-алерты** из incident, только писать `hop_links` в JSONL | `cock_monitor/services/incident_sampler.py` (`compute_level`, hop branch) | Нет дублирующих Telegram при RF3 |
-| **Профиль RF3:** убрать `INCIDENT_HOP_LINKS` из профиля; решить default: `core,hop` vs `core,hop,incident` (документировать trade-off) | `config/profiles/stack-rf3.env`, `install/profiles.md` | Минимальный стек RF3 без лишнего |
+| **`HOP_LINKS` — единственный ключ**; `INCIDENT_HOP_LINKS` удалён | `adapters/hop_links.py`, `config/fragments/hop.env`, `incident.env`, `stack-rf3.env` | Один конфиг |
+| **Incident:** если `hop` ∈ `ENABLED_MODULES` — **не слать hop-алерты**, только `hop_links` в JSONL | `incident_sampler.py` | Нет дублей Telegram на RF3 |
+| **Профиль RF3:** только `HOP_LINKS`; default `core,hop,incident` документирован | `stack-rf3.env`, `install/profiles.md` | Минимальный стек |
 | **Тесты:** hop enabled → incident не эскалирует по hop; hop disabled → incident может | `tests/test_incident_hop_dedup.py` (новый) | Регресс на главный баг RF3 |
 
 ### Scope
@@ -121,10 +137,10 @@
 
 ### Критерии готовности
 
-- [ ] `stack-rf3` содержит только `HOP_LINKS` (без дублирующего `INCIDENT_HOP_LINKS` в профиле).
-- [ ] При `ENABLED_MODULES=core,hop,incident` hop-алерты идут только из `hop` tick.
-- [ ] JSONL incident по-прежнему содержит `hop_links` для post-mortem.
-- [ ] `pytest`, `ruff` OK.
+- [x] `stack-rf3` содержит только `HOP_LINKS` (без дублирующего `INCIDENT_HOP_LINKS` в профиле).
+- [x] При `ENABLED_MODULES=core,hop,incident` hop-алерты идут только из `hop` tick.
+- [x] JSONL incident по-прежнему содержит `hop_links` для post-mortem.
+- [ ] `pytest`, `ruff` OK (на хосте с dev deps).
 
 ### Оценка объёма
 
@@ -143,8 +159,8 @@
 | Изменение | Файлы (ориентир) | Зачем |
 |-----------|------------------|-------|
 | **Перенос** `incident_sampler.py` → `modules/incident/sampler.py` | новый пакет | Owner модуля = owner кода |
-| **Выделение** `probes.py` (ping, dns, tcp_probe), `postmortem.py`, `level.py` | `modules/incident/` | Тестируемость, меньше god-file |
-| **Thin wrapper** `services/incident_sampler.py` с deprecation re-export (1 релиз) или прямой импорт в `run_cli` | `cock_monitor/run_cli.py`, `bin/incident-sampler.sh` | Обратная совместимость entrypoints |
+| **Выделение** `probes.py`, `postmortem.py`, `level.py` | `modules/incident/` | Тестируемость |
+| **Удалить** `services/incident_sampler.py` и `bin/incident-sampler.sh`; entrypoint только `run incident` | `run_cli.py`, `systemd/cock-monitor-incident.*` | Без дублирующих путей |
 | **Обновить** `docs/stage-5-unified-boundaries.md` | docs | Актуальная карта ownership |
 
 ### Scope
@@ -155,7 +171,7 @@
 ### Критерии готовности
 
 - [ ] `python -m cock_monitor run incident` вызывает код из `modules/incident/`.
-- [ ] `bin/incident-sampler.sh` работает без изменения ops-контракта.
+- [ ] Нет `bin/incident-sampler.sh`, `cock-monitor-incident-sampler.*` в repo.
 - [ ] Нет циклических импортов; `domain`/`adapters` не тянут telegram напрямую из sampler.
 - [ ] Существующие тесты incident проходят (пути обновлены).
 - [ ] `pytest`, `ruff` OK.
@@ -235,61 +251,66 @@ RF3 требует `setup-hop-probe.sh`, RF2 — `patch-xray-hop-http-proxy.sh`,
 
 ---
 
-## Фаза 13 — Legacy cleanup и ops-унификация
+## Фаза 13 — Legacy cleanup (безжалостная чистка)
 
 ### Цели фазы
 
-Убрать артефакты v1, которые сбивают с толку: shim-пакеты, дублирующие entrypoints, `configure_cli` на legacy units, незарегистрированный burst-capture.
+Убрать весь v1-мусор: shim-пакеты, дублирующие entrypoints, legacy systemd, старые install-скрипты и docs. После фазы в репо **один** путь для каждой операции.
 
-### Что меняем структурно и зачем
+### Инвентарь на удаление / миграцию
 
-| Изменение | Файлы (ориентир) | Зачем |
-|-----------|------------------|-------|
-| **Deprecation → removal:** `mtproxy_module/`, `telegram_bot/` (re-export only) | удаление или README stub | Один путь импорта: `cock_monitor.*` |
-| **`configure_cli.py`:** migrate на v2 units или пометить deprecated + redirect на `install` | `cock_monitor/configure_cli.py`, README | Нет двух wizard'ов |
-| **Burst-capture:** зарегистрировать как ops-модуль `diagnostics` **или** явный subcommand в `__main__.py` + docs | `platform/registry.py`, `burst_capture_cli.py`, `__main__.py` | Закрыть дыру «CLI есть, в роутере нет» |
-| **Синхронизация docs:** README, DEPLOY, config.example.env — только v2 пути | docs | Onboarding без legacy |
-| **Удаление неиспользуемых legacy systemd** из repo (если не нужны для миграции) | `systemd/`, uninstall list | Меньше шума |
+| Категория | Артефакты | Действие |
+|-----------|-----------|----------|
+| **Shim-пакеты** | `mtproxy_module/`, `telegram_bot/` (re-export only) | Удалить; импорты → `cock_monitor.*` |
+| **Legacy systemd** | `cock-monitor.service`, `cock-monitor-incident-sampler.*`, `cock-shaper.*`, `cock-mtproxy-monitor.*` (v1 names в docs) | Удалить из repo; оставить в `LEGACY_UNITS` uninstall |
+| **Legacy bin** | `bin/incident-sampler.sh` | Удалить |
+| **configure_cli** | v1 `BASE_SERVICES`, `cock-mtproxy-*` units | Переписать на v2 units или удалить wizard в пользу `install.sh` |
+| **lib/** | `lib/incident-metrics.sh` | Удалить если не используется |
+| **install/** | `install-ubuntu-minimal.sh` (если дублирует v2), legacy unit refs в DEPLOY | Синхронизировать или удалить |
+| **Docs** | `stage-0-inventory` v1 units, `docs/tasks-vpn-quality-investigation.md` `SHAPER_ENABLE` | Обновить на v2 only |
+| **Burst-capture** | CLI без registry | Зарегистрировать `diagnostics` или subcommand в `__main__.py` |
+| **JSONL tag** | `"sampler": "incident-sampler"` | Опционально переименовать в `"incident"` (breaking JSONL — ok) |
 
 ### Scope
 
-- **В scope:** shims, configure_cli fate, burst CLI wire-up, doc sync.
+- **В scope:** всё из таблицы, grep по `MTPROXY_ENABLE|INCIDENT_SAMPLER|SHAPER_ENABLE|INCIDENT_HOP_LINKS|incident-sampler`, doc sync.
 - **Вне scope:** новые фичи модулей.
 
 ### Критерии готовности
 
-- [ ] Нет рабочих импортов из `mtproxy_module` / `telegram_bot` внутри репо (кроме optional compat layer с warning).
-- [ ] `python -m cock_monitor burst-capture --help` работает (или модуль `diagnostics` в registry).
-- [ ] README/DEPLOY описывают только v2 install и v2 timers.
+- [ ] `rg` по legacy-ключам в `*.py`/`*.sh`/`config*` — пусто (кроме `LEGACY_UNITS`, uninstall, migration doc «removed»).
+- [ ] Нет рабочих импортов из `mtproxy_module` / `telegram_bot`.
+- [ ] `python -m cock_monitor burst-capture --help` работает (или модуль в registry).
+- [ ] README/DEPLOY/install — только v2 timers и `ENABLED_MODULES`.
 - [ ] `pytest`, `ruff` OK.
 
 ### Оценка объёма
 
-~12–20 файлов (много docs/tests), 1 агент.
+~15–25 файлов (много delete + docs), 1 агент. **Частично начато в фазах 7–9** (удалены fallback-флаги, incident v2 units).
 
 ---
 
 ## Сводная дорожная карта
 
 ```text
-Фаза 7  → единый enable (SHAPER / INCIDENT / MTPROXY)
+Фаза 7  → единый enable (удалить legacy env-флаги)
 Фаза 8  → install daily timers + матрица профилей
-Фаза 9  → hop config + dedup алертов hop/incident
-Фаза 10 → incident в modules/incident/
+Фаза 9  → HOP_LINKS only + dedup алертов hop/incident
+Фаза 10 → incident в modules/incident/ (без wrapper)
 Фаза 11 → post-install hooks + preflight по ролям
 Фаза 12 → role presets + lean mtproxy + validation
-Фаза 13 → legacy cleanup + burst/diagnostics
+Фаза 13 → legacy cleanup (shims, units, bin, docs)
 ```
 
 | Фаза | Зависимости | Приоритет для бизнеса |
 |------|-------------|----------------------|
-| 7 | — | **Высокий** (DE/US shaper сейчас сломан) |
+| 7 | — | **Высокий** (DE/US shaper) |
 | 8 | — | **Высокий** (daily reports, Helsinki) |
-| 9 | 7 желательно | **Высокий** (RF3 дубли алертов) |
-| 10 | 9 желательно | Средний (структура кода) |
+| 9 | 7 | **Высокий** (RF3 дубли алертов) |
+| 13 | 7–9 частично | **Средний** (гигиена; инкрементально после 7–9) |
+| 10 | 9 | Средний (структура кода) |
 | 11 | 8 | Средний (ops RF3/RF2/Helsinki) |
 | 12 | 7, 8, 9 | Средний (ergonomics деплоя) |
-| 13 | 10, 12 | Низкий (гигиена, после стабилизации) |
 
 ---
 

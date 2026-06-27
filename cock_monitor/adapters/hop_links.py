@@ -7,6 +7,11 @@ from typing import Any
 from cock_monitor.adapters.linux_host import parse_ss_state_line_counts
 
 
+def resolve_hop_links_raw(env: dict[str, str]) -> str:
+    """Hop link specs from HOP_LINKS only (comma-separated)."""
+    return env.get("HOP_LINKS", "").strip()
+
+
 def parse_hop_link_spec(spec: str) -> dict[str, Any] | None:
     """Parse hop link spec: name:dst:host:port or name:sport::port."""
     raw = spec.strip()

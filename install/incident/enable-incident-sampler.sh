@@ -49,7 +49,7 @@ set_env_key() {
 touch "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
-set_env_key INCIDENT_SAMPLER_ENABLE 1 "$ENV_FILE"
+set_env_key ENABLED_MODULES core,incident "$ENV_FILE"
 set_env_key INCIDENT_ALERT_ENABLE 0 "$ENV_FILE"
 set_env_key INCIDENT_POSTMORTEM_ENABLE 0 "$ENV_FILE"
 set_env_key INCIDENT_LOG_DIR /var/lib/cock-monitor "$ENV_FILE"
@@ -63,21 +63,21 @@ set_env_key INCIDENT_DNS_HOST one.one.one.one "$ENV_FILE"
 set_env_key INCIDENT_PING_EXTERNAL_TARGETS "\"1.1.1.1 8.8.8.8\"" "$ENV_FILE"
 
 echo "Installing systemd units..."
-install -m644 "${COCK_MONITOR_HOME}/systemd/cock-monitor-incident-sampler.service" /etc/systemd/system/
-install -m644 "${COCK_MONITOR_HOME}/systemd/cock-monitor-incident-sampler.timer" /etc/systemd/system/
+install -m644 "${COCK_MONITOR_HOME}/systemd/cock-monitor-incident.service" /etc/systemd/system/
+install -m644 "${COCK_MONITOR_HOME}/systemd/cock-monitor-incident.timer" /etc/systemd/system/
 
-dropin="/etc/systemd/system/cock-monitor-incident-sampler.service.d"
+dropin="/etc/systemd/system/cock-monitor-incident.service.d"
 mkdir -p "$dropin"
 cat > "${dropin}/override.conf" <<EOF
 [Service]
 WorkingDirectory=${COCK_MONITOR_HOME}
 ExecStart=
-ExecStart=${VENV_PYTHON} -m cock_monitor.services.incident_sampler ${ENV_FILE}
+ExecStart=${VENV_PYTHON} -m cock_monitor run incident ${ENV_FILE}
 EOF
 
 systemctl daemon-reload
-systemctl enable --now cock-monitor-incident-sampler.timer
-systemctl start cock-monitor-incident-sampler.service
+systemctl enable --now cock-monitor-incident.timer
+systemctl start cock-monitor-incident.service
 
 install -m755 "${COCK_MONITOR_HOME}/install/incident/incident-status.sh" /usr/local/bin/incident-status 2>/dev/null || true
 

@@ -100,7 +100,7 @@
 **Поведение:**
 
 - Проверять `systemctl is-active cock-monitor.timer` (или имя unit из env).
-- Если `SHAPER_ENABLE=1` в env — проверить `cock-shaper.timer` (или как реально называется в `systemd/` репозитория).
+- Если `shaper` в `ENABLED_MODULES` — проверить `cock-monitor-shaper.timer`.
 - Вывод: строка в статусе «WARN: cock-monitor.timer inactive» и т.д.
 
 **Критерий готовности:** на хосте без включённого таймера в `/status` явно видно предупреждение; на нормально настроенном — зелёно или нейтрально.

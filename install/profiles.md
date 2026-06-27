@@ -62,13 +62,17 @@ sudo bash install/install.sh --profile stack-rf3 --token '...' --chat-id '...' -
 sudo bash install/rf3/setup-hop-probe.sh   # optional: SOCKS probe + TELEGRAM_PROXY_URL
 ```
 
-On Germany (optional hop inbound monitoring), add to `/etc/cock-monitor.env`:
+On Germany (optional hop inbound monitoring without hop module), add to `/etc/cock-monitor.env`:
 
 ```bash
-INCIDENT_HOP_LINKS=rf3-de:sport::10089
+HOP_LINKS=rf3-de:sport::10089
 INCIDENT_HOP_ESTAB_WARN=5
 INCIDENT_HOP_FIN_WAIT_WARN=20
 ```
+
+Hop Telegram alerts on RF3 are owned by the **hop** module (`HOP_*` thresholds). With `hop` in `ENABLED_MODULES`, incident still writes `hop_links` to JSONL but does not escalate WARN/CRIT on hop metrics.
+
+**RF3 minimal stack** (`core,hop` only) drops JSONL post-mortem; default profile keeps `incident` for diagnostics.
 
 Verify:
 

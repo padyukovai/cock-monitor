@@ -92,8 +92,8 @@ ssh "$DEPLOY_HOST" "install -m644 \
   $APP_DIR/systemd/cock-mtproxy-daily.timer \
   $APP_DIR/systemd/cock-shaper.service \
   $APP_DIR/systemd/cock-shaper.timer \
-  $APP_DIR/systemd/cock-monitor-incident-sampler.service \
-  $APP_DIR/systemd/cock-monitor-incident-sampler.timer \
+  $APP_DIR/systemd/cock-monitor-incident.service \
+  $APP_DIR/systemd/cock-monitor-incident.timer \
   $APP_DIR/systemd/cock-vless-daily.service \
   $APP_DIR/systemd/cock-vless-daily.timer \
   /etc/systemd/system/ && systemctl daemon-reload"

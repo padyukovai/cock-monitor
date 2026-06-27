@@ -47,10 +47,6 @@ shaper_enabled() {
   for part in "${_shaper_mods[@]}"; do
     [[ -n "$part" && "$part" == "shaper" ]] && return 0
   done
-  if [[ "${SHAPER_ENABLE:-0}" == "1" ]]; then
-    echo "warn: SHAPER_ENABLE is deprecated; use ENABLED_MODULES=core,shaper (or add shaper to ENABLED_MODULES)" >&2
-    return 0
-  fi
   return 1
 }
 

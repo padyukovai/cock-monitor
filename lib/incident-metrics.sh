@@ -4,7 +4,6 @@
 _COCK_MONITOR_INCIDENT_METRICS_SH=1
 
 incident_apply_defaults() {
-  INCIDENT_SAMPLER_ENABLE="${INCIDENT_SAMPLER_ENABLE:-0}"
   INCIDENT_LOG_DIR="${INCIDENT_LOG_DIR:-/var/lib/cock-monitor}"
   INCIDENT_STATE_FILE="${INCIDENT_STATE_FILE:-/var/lib/cock-monitor/incident_sampler.state}"
 

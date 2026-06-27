@@ -33,8 +33,8 @@ MODULE_UNITS = {
         "cock-mtproxy-daily.timer",
     ),
     "incident": (
-        "cock-monitor-incident-sampler.service",
-        "cock-monitor-incident-sampler.timer",
+        "cock-monitor-incident.service",
+        "cock-monitor-incident.timer",
     ),
     "shaper": ("cock-shaper.service", "cock-shaper.timer"),
     "vless": ("cock-vless-daily.service", "cock-vless-daily.timer"),
@@ -336,12 +336,12 @@ def _write_override(service: str, repo_root: Path, python_bin: Path, env_file: P
             "ExecStart=\n"
             f"ExecStart={python_bin} -m cock_monitor vless-report --env-file {env_file} --send-telegram --mode daily\n"
         )
-    elif service == "cock-monitor-incident-sampler.service":
+    elif service == "cock-monitor-incident.service":
         body = (
             "[Service]\n"
             f"WorkingDirectory={repo_root}\n"
             "ExecStart=\n"
-            f"ExecStart={python_bin} -m cock_monitor.services.incident_sampler {env_file}\n"
+            f"ExecStart={python_bin} -m cock_monitor run incident {env_file}\n"
         )
     else:
         body = (
@@ -352,11 +352,19 @@ def _write_override(service: str, repo_root: Path, python_bin: Path, env_file: P
     path.write_text(body, encoding="utf-8")
 
 
+_LEGACY_ENV_KEYS = (
+    "MTPROXY_ENABLE",
+    "INCIDENT_SAMPLER_ENABLE",
+    "SHAPER_ENABLE",
+    "INCIDENT_HOP_LINKS",
+)
+
+
 def _sync_enabled_modules(state: WizardState) -> None:
     modules = {"core", *state.selected_modules}
     order = ["core"] + sorted(m for m in modules if m != "core")
     state.env_values["ENABLED_MODULES"] = ",".join(order)
-    for legacy in ("MTPROXY_ENABLE", "INCIDENT_SAMPLER_ENABLE", "SHAPER_ENABLE"):
+    for legacy in _LEGACY_ENV_KEYS:
         state.env_values.pop(legacy, None)
 
 

@@ -81,7 +81,7 @@
 5. `/chart` строит PNG из `METRICS_DB` и отправляет фото.
 6. VLESS daily и `/vless_delta` корректно считают дельты и checkpoint.
 7. MTProxy collector пишет метрики/алерты; `/mt_status`, `/mt_today`, `/mt_threshold` работают.
-8. Shaper корректно меняет rate, пишет state/status и не ломает сеть при `SHAPER_ENABLE=0/1`.
+8. Shaper корректно меняет rate, пишет state/status при `shaper` ∈ `ENABLED_MODULES`; no-op если модуль выключен.
 9. Incident sampler пишет JSONL, держит state, на recovery формирует post-mortem.
 
 ## 5) Явные ограничения Stage 0

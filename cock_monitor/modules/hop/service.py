@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from cock_monitor.adapters.hop_links import collect_hop_links
+from cock_monitor.adapters.hop_links import collect_hop_links, resolve_hop_links_raw
 from cock_monitor.adapters.linux_host import read_hostname_fqdn
 from cock_monitor.adapters.xray_error_log import XrayErrorLogTracker
 from cock_monitor.config_loader import load_config
@@ -59,7 +59,7 @@ class HopConfig:
 
     @classmethod
     def from_env(cls, raw: dict[str, str], *, dry_run: bool) -> HopConfig:
-        links = raw.get("HOP_LINKS", "").strip() or raw.get("INCIDENT_HOP_LINKS", "").strip()
+        links = resolve_hop_links_raw(raw)
         state_dir = Path(raw.get("HOP_STATE_DIR", "/var/lib/cock-monitor"))
         return cls(
             hop_links_raw=links,

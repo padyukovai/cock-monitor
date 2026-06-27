@@ -14,6 +14,7 @@ from cock_monitor.adapters.hop_links import (
     collect_hop_links as collect_hop_links_raw,
     parse_hop_link_spec,
     parse_hop_links_env,
+    resolve_hop_links_raw,
 )
 from cock_monitor.adapters.linux_host import (
     parse_ss_state_line_counts,
@@ -45,8 +46,7 @@ def _get_str(name: str, default: str) -> str:
 
 
 def apply_incident_defaults() -> None:
-    """Mirror lib/incident-metrics.sh incident_apply_defaults (setdefault order matters)."""
-    os.environ.setdefault("INCIDENT_SAMPLER_ENABLE", "0")
+    """Default env keys for incident sampler ticks."""
     os.environ.setdefault("INCIDENT_LOG_DIR", "/var/lib/cock-monitor")
     os.environ.setdefault("INCIDENT_STATE_FILE", "/var/lib/cock-monitor/incident_sampler.state")
 
@@ -70,7 +70,6 @@ def apply_incident_defaults() -> None:
     os.environ.setdefault("INCIDENT_TCP_CLOSE_WAIT_WARN", "0")
     os.environ.setdefault("INCIDENT_TCP_ORPHAN_WARN", "0")
 
-    os.environ.setdefault("INCIDENT_HOP_LINKS", "")
     os.environ.setdefault("INCIDENT_HOP_ESTAB_WARN", "5")
     os.environ.setdefault("INCIDENT_HOP_ESTAB_CRIT", "20")
     os.environ.setdefault("INCIDENT_HOP_FIN_WAIT_WARN", "20")
@@ -417,10 +416,15 @@ def collect_tcp_states() -> dict[str, int]:
 
 
 def collect_hop_links() -> dict[str, Any]:
-    raw = os.environ.get("INCIDENT_HOP_LINKS", "").strip()
-    if not raw:
-        raw = os.environ.get("HOP_LINKS", "").strip()
-    return collect_hop_links_raw(raw)
+    return collect_hop_links_raw(resolve_hop_links_raw(dict(os.environ)))
+
+
+def incident_hop_level_enabled(env: dict[str, str] | None = None) -> bool:
+    """False when hop module owns hop Telegram alerts (incident still samples JSONL)."""
+    from cock_monitor.platform.registry import module_enabled
+
+    raw = dict(os.environ) if env is None else env
+    return not module_enabled("hop", raw)
 
 
 def collect_units() -> dict[str, str]:
@@ -743,9 +747,9 @@ def build_json_line(
 
 
 def _incident_enabled() -> bool:
-    from cock_monitor.platform.legacy_enable import resolve_module_enabled
+    from cock_monitor.platform.registry import module_enabled
 
-    return resolve_module_enabled("incident", dict(os.environ))
+    return module_enabled("incident", dict(os.environ))
 
 
 def run_once() -> int:
@@ -805,6 +809,10 @@ def run_once() -> int:
     tcp_warn = _get_int("INCIDENT_TCP_PROBE_WARN_FAILS", 1)
     tcp_crit = _get_int("INCIDENT_TCP_PROBE_CRIT_FAILS", 0)
 
+    hop_level_links = None
+    if incident_hop_level_enabled() and hop_links.get("enabled"):
+        hop_level_links = hop_links.get("links")
+
     level = compute_level(
         fill_pct=ct_fill,
         conn_warn=_get_int("INCIDENT_CONNTRACK_WARN_PCT", 85),
@@ -823,7 +831,7 @@ def run_once() -> int:
         tcp_close_wait_warn=_get_int("INCIDENT_TCP_CLOSE_WAIT_WARN", 0),
         tcp_orphan=tcp_orphan,
         tcp_orphan_warn=_get_int("INCIDENT_TCP_ORPHAN_WARN", 0),
-        hop_links=hop_links.get("links") if hop_links.get("enabled") else None,
+        hop_links=hop_level_links,
         hop_estab_warn=_get_int("INCIDENT_HOP_ESTAB_WARN", 5),
         hop_estab_crit=_get_int("INCIDENT_HOP_ESTAB_CRIT", 20),
         hop_fin_wait_warn=_get_int("INCIDENT_HOP_FIN_WAIT_WARN", 20),
