@@ -3,57 +3,16 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 from cock_monitor.defaults import DEFAULT_ENV_FILE
-from cock_monitor.modules.core.service import run_core_tick
-from cock_monitor.modules.wg.service import run_wg_collect
 from cock_monitor.platform.registry import MODULE_IDS, get_registry, module_enabled
 
 
-def _run_mtproxy(env_file: Path, *, dry_run: bool) -> int:
-    from cock_monitor.mtproxy_collect_cli import run as mtproxy_run
-
-    args = ["--env-file", str(env_file)]
-    if dry_run:
-        args.append("--dry-run")
-    return mtproxy_run(args)
-
-
-def _run_vless(env_file: Path) -> int:
-    from cock_monitor.services.vless_report import run as vless_run
-
-    return vless_run(["--env-file", str(env_file), "--send-telegram", "--mode", "daily"])
-
-
-def _run_incident(env_file: Path) -> int:
-    from cock_monitor.modules.incident.service import run_incident_tick
-
-    return run_incident_tick(env_file)
-
-
-def _run_shaper(env_file: Path, *, dry_run: bool) -> int:
-    repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "bin" / "cock-cpu-shaper.sh"
-    args = [str(script)]
-    if dry_run:
-        args.append("--dry-run")
-    args.append(str(env_file))
-    return subprocess.run(args, check=False).returncode
-
-
-def _run_hop(env_file: Path, *, dry_run: bool) -> int:
-    from cock_monitor.modules.hop.service import run_hop_collect
-
-    return run_hop_collect(env_file, dry_run=dry_run)
-
-
 def _run_core_daily(env_file: Path) -> int:
-    import os
-    import tempfile
-
     from cock_monitor.modules.core.charts import run_core_chart
     from cock_monitor.platform.config import load_runtime_env
     from cock_monitor.platform.telegram.client import TelegramClient
@@ -76,41 +35,30 @@ def _run_core_daily(env_file: Path) -> int:
     return 0
 
 
-_MODULE_RUNNERS = {
-    "core": lambda env, dry: run_core_tick(env, dry_run=dry),
-    "wg": lambda env, dry: run_wg_collect(env, dry_run=dry),
-    "mtproxy": lambda env, dry: _run_mtproxy(env, dry_run=dry),
-    "vless": lambda env, dry: _run_vless(env),
-    "incident": lambda env, dry: _run_incident(env),
-    "shaper": lambda env, dry: _run_shaper(env, dry_run=dry),
-    "hop": lambda env, dry: _run_hop(env, dry_run=dry),
-}
+def _migrate_before_tick(module_id: str, raw: dict[str, str], *, dry_run: bool) -> None:
+    from cock_monitor.platform.storage.manager import StorageManager
+
+    db = Path(raw.get("METRICS_DB", "/var/lib/cock-monitor/metrics.db"))
+    mgr = StorageManager(db)
+    if module_id == "core" and not dry_run:
+        record = raw.get("METRICS_RECORD_EVERY_RUN", "1").strip() not in {"0", "false", "False"}
+        if record or raw.get("ALERT_ON_STATS_DELTA", "0").strip() in {"1", "true"}:
+            mgr.migrate_all(raw)
+    elif module_id != "core":
+        mgr.migrate_all(raw)
 
 
 def run_module(module_id: str, env_file: Path, *, dry_run: bool = False) -> int:
     if module_id not in MODULE_IDS:
         raise ValueError(f"unknown module: {module_id}")
-    runner = _MODULE_RUNNERS.get(module_id)
-    if runner is None:
-        raise ValueError(f"no runner for module: {module_id}")
     from cock_monitor.platform.config import load_runtime_env
 
     raw = load_runtime_env(env_file)
     if module_id != "core" and not module_enabled(module_id, raw):
         return 0
-    if module_id == "core" and not dry_run:
-        record = raw.get("METRICS_RECORD_EVERY_RUN", "1").strip() not in {"0", "false", "False"}
-        if record or raw.get("ALERT_ON_STATS_DELTA", "0").strip() in {"1", "true"}:
-            mgr = __import__(
-                "cock_monitor.platform.storage.manager", fromlist=["StorageManager"]
-            ).StorageManager(Path(raw.get("METRICS_DB", "/var/lib/cock-monitor/metrics.db")))
-            mgr.migrate_all(raw)
-    elif module_id != "core":
-        mgr = __import__(
-            "cock_monitor.platform.storage.manager", fromlist=["StorageManager"]
-        ).StorageManager(Path(raw.get("METRICS_DB", "/var/lib/cock-monitor/metrics.db")))
-        mgr.migrate_all(raw)
-    return runner(env_file, dry_run)
+    registry = get_registry()
+    _migrate_before_tick(module_id, raw, dry_run=dry_run)
+    return registry.run_tick_for(module_id, env_file, dry_run=dry_run)
 
 
 def run(argv: list[str]) -> int:
@@ -133,8 +81,6 @@ def run(argv: list[str]) -> int:
 
 
 def list_modules_cmd(argv: list[str]) -> int:
-    import argparse
-
     parser = argparse.ArgumentParser(description="List cock-monitor modules")
     parser.add_argument("subcmd", nargs="?", choices=["enabled", "all"], default="all")
     parser.add_argument("env_file", nargs="?", default=str(DEFAULT_ENV_FILE))

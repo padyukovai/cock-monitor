@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from cock_monitor.services.status_report import StatusReportError
 from cock_monitor.platform.telegram.status_provider import PythonStatusProvider
+from cock_monitor.services.status_report import StatusReportError
 
 
 def test_python_status_provider_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

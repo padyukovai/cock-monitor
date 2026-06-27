@@ -26,15 +26,15 @@ def test_vless_delta_defaults_to_daily_mode(tmp_path: Path, monkeypatch) -> None
     env_file = tmp_path / "env"
     _write_env(env_file)
     monkeypatch.setattr(
-        "cock_monitor.platform.telegram.dispatch.run_with_timeout",
+        "cock_monitor.platform.telegram.handler_utils.run_with_timeout",
         lambda fn, _timeout: fn(),
     )
     monkeypatch.setattr(
-        "cock_monitor.platform.telegram.dispatch.run_daily_with_telegram",
+        "cock_monitor.modules.vless.telegram_handlers.run_daily_with_telegram",
         lambda _env_file: calls.append("daily"),
     )
     monkeypatch.setattr(
-        "cock_monitor.platform.telegram.dispatch.run_since_last_sent_with_telegram",
+        "cock_monitor.modules.vless.telegram_handlers.run_since_last_sent_with_telegram",
         lambda _env_file: calls.append("since-last"),
     )
 
@@ -43,9 +43,7 @@ def test_vless_delta_defaults_to_daily_mode(tmp_path: Path, monkeypatch) -> None
         _update("/vless_delta"),
         allowed_chat_id="1",
         client=client,
-        status_provider=object(),  # type: ignore[arg-type]
         env_file=env_file,
-        mtproxy_cfg=None,
     )
 
     assert calls == ["daily"]
@@ -57,15 +55,15 @@ def test_vless_delta_since_last_mode_by_flag(tmp_path: Path, monkeypatch) -> Non
     env_file = tmp_path / "env"
     _write_env(env_file)
     monkeypatch.setattr(
-        "cock_monitor.platform.telegram.dispatch.run_with_timeout",
+        "cock_monitor.platform.telegram.handler_utils.run_with_timeout",
         lambda fn, _timeout: fn(),
     )
     monkeypatch.setattr(
-        "cock_monitor.platform.telegram.dispatch.run_daily_with_telegram",
+        "cock_monitor.modules.vless.telegram_handlers.run_daily_with_telegram",
         lambda _env_file: calls.append("daily"),
     )
     monkeypatch.setattr(
-        "cock_monitor.platform.telegram.dispatch.run_since_last_sent_with_telegram",
+        "cock_monitor.modules.vless.telegram_handlers.run_since_last_sent_with_telegram",
         lambda _env_file: calls.append("since-last"),
     )
 
@@ -74,9 +72,7 @@ def test_vless_delta_since_last_mode_by_flag(tmp_path: Path, monkeypatch) -> Non
         _update("/vless_delta --since-last-sent"),
         allowed_chat_id="1",
         client=client,
-        status_provider=object(),  # type: ignore[arg-type]
         env_file=env_file,
-        mtproxy_cfg=None,
     )
 
     assert calls == ["since-last"]
@@ -87,15 +83,15 @@ def test_vless_delta_unknown_flag_returns_usage(tmp_path: Path, monkeypatch) -> 
     env_file = tmp_path / "env"
     _write_env(env_file)
     monkeypatch.setattr(
-        "cock_monitor.platform.telegram.dispatch.run_with_timeout",
+        "cock_monitor.platform.telegram.handler_utils.run_with_timeout",
         lambda fn, _timeout: fn(),
     )
     monkeypatch.setattr(
-        "cock_monitor.platform.telegram.dispatch.run_daily_with_telegram",
+        "cock_monitor.modules.vless.telegram_handlers.run_daily_with_telegram",
         lambda _env_file: None,
     )
     monkeypatch.setattr(
-        "cock_monitor.platform.telegram.dispatch.run_since_last_sent_with_telegram",
+        "cock_monitor.modules.vless.telegram_handlers.run_since_last_sent_with_telegram",
         lambda _env_file: None,
     )
 
@@ -104,9 +100,7 @@ def test_vless_delta_unknown_flag_returns_usage(tmp_path: Path, monkeypatch) -> 
         _update("/vless_delta --unknown"),
         allowed_chat_id="1",
         client=client,
-        status_provider=object(),  # type: ignore[arg-type]
         env_file=env_file,
-        mtproxy_cfg=None,
     )
 
     assert len(client.messages) == 1

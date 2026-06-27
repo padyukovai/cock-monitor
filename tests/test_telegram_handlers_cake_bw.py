@@ -26,9 +26,7 @@ def test_cake_bw_updates_max_rate_in_env(tmp_path: Path) -> None:
         _update("/cake_bw 250"),
         allowed_chat_id="1",
         client=client,
-        status_provider=object(),  # type: ignore[arg-type]
         env_file=env_file,
-        mtproxy_cfg=None,
     )
 
     new_env = env_file.read_text(encoding="utf-8")
@@ -46,9 +44,7 @@ def test_cake_bw_rejects_below_min_rate(tmp_path: Path) -> None:
         _update("/cake_bw 10"),
         allowed_chat_id="1",
         client=client,
-        status_provider=object(),  # type: ignore[arg-type]
         env_file=env_file,
-        mtproxy_cfg=None,
     )
 
     current_env = env_file.read_text(encoding="utf-8")
@@ -66,9 +62,7 @@ def test_cake_bw_requires_single_integer_argument(tmp_path: Path) -> None:
         _update("/cake_bw"),
         allowed_chat_id="1",
         client=client,
-        status_provider=object(),  # type: ignore[arg-type]
         env_file=env_file,
-        mtproxy_cfg=None,
     )
     assert client.messages == ["Usage: /cake_bw <mbit> [--force]"]
 
@@ -77,9 +71,7 @@ def test_cake_bw_requires_single_integer_argument(tmp_path: Path) -> None:
         _update("/cake_bw x"),
         allowed_chat_id="1",
         client=client,
-        status_provider=object(),  # type: ignore[arg-type]
         env_file=env_file,
-        mtproxy_cfg=None,
     )
     assert client.messages == ["Invalid value. Must be integer Mbit."]
 
@@ -93,9 +85,7 @@ def test_cake_bw_rejects_unknown_flag(tmp_path: Path) -> None:
         _update("/cake_bw 120 --bad"),
         allowed_chat_id="1",
         client=client,
-        status_provider=object(),  # type: ignore[arg-type]
         env_file=env_file,
-        mtproxy_cfg=None,
     )
 
     assert client.messages == ["Unknown flag. Usage: /cake_bw <mbit> [--force]"]
@@ -110,14 +100,17 @@ def test_cake_bw_force_applies_global_tc_limit(tmp_path: Path, monkeypatch) -> N
     client = _Client()
     seen: list[tuple[str, int]] = []
 
-    monkeypatch.setattr("cock_monitor.platform.telegram.dispatch.run_with_timeout", lambda fn, _timeout: fn())
+    monkeypatch.setattr(
+        "cock_monitor.platform.telegram.handler_utils.run_with_timeout",
+        lambda fn, _timeout: fn(),
+    )
 
     def _fake_apply_global_cake_limit(*, iface: str, rate_mbit: int) -> str:
         seen.append((iface, rate_mbit))
         return f"Applied global CAKE limit on {iface}: {rate_mbit}M"
 
     monkeypatch.setattr(
-        "cock_monitor.platform.telegram.dispatch._apply_global_cake_limit",
+        "cock_monitor.modules.shaper.telegram_handlers._apply_global_cake_limit",
         _fake_apply_global_cake_limit,
     )
 
@@ -125,9 +118,7 @@ def test_cake_bw_force_applies_global_tc_limit(tmp_path: Path, monkeypatch) -> N
         _update("/cake_bw 222 --force"),
         allowed_chat_id="1",
         client=client,
-        status_provider=object(),  # type: ignore[arg-type]
         env_file=env_file,
-        mtproxy_cfg=None,
     )
 
     assert seen == [("eth0", 222)]

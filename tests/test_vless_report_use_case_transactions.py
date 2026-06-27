@@ -63,7 +63,7 @@ def test_vless_use_case_rolls_back_all_writes_on_send_failure(
     )
 
     class _FailingClient:
-        def __init__(self, _token: str) -> None:
+        def __init__(self, _token: str, proxy_url: str | None = None) -> None:
             pass
 
         def send_message(self, _chat: str, _text: str, parse_mode: str | None = None) -> None:
@@ -121,7 +121,7 @@ def test_vless_use_case_sends_photo_when_chart_enabled(
     calls: list[str] = []
 
     class _Client:
-        def __init__(self, _token: str) -> None:
+        def __init__(self, _token: str, proxy_url: str | None = None) -> None:
             pass
 
         def send_message(self, _chat: str, _text: str, parse_mode: str | None = None) -> None:
@@ -185,7 +185,7 @@ def test_vless_use_case_chart_failure_falls_back_to_message(
     calls: list[str] = []
 
     class _Client:
-        def __init__(self, _token: str) -> None:
+        def __init__(self, _token: str, proxy_url: str | None = None) -> None:
             pass
 
         def send_message(self, _chat: str, _text: str, parse_mode: str | None = None) -> None:

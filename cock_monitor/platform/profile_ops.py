@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from cock_monitor.platform.config import PROFILE_OPS_KEYS, load_profile
+from cock_monitor.platform.config import load_profile
 
 
 def split_ops_list(raw: str) -> list[str]:

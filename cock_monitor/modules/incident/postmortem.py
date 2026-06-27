@@ -10,9 +10,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from cock_monitor.platform.telegram.client import DeliveryResult, TelegramClient
-
 from cock_monitor.modules.incident.env import get_int
+from cock_monitor.platform.telegram.client import DeliveryResult, TelegramClient
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 

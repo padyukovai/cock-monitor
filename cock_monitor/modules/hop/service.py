@@ -16,7 +16,7 @@ from cock_monitor.config_loader import load_config
 from cock_monitor.defaults import DEFAULT_METRICS_DB
 from cock_monitor.modules.hop.alerts import HopAlertThresholds, evaluate_hop_alerts
 from cock_monitor.modules.hop.probe import parse_hop_probes_env, run_hop_probe
-from cock_monitor.modules.hop.storage import insert_sample, migrate_hop_schema, record_alert, should_alert
+from cock_monitor.modules.hop.storage import insert_sample, record_alert, should_alert
 from cock_monitor.platform.registry import module_enabled
 from cock_monitor.platform.storage.manager import StorageManager
 from cock_monitor.platform.telegram.client import TelegramClient

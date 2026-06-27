@@ -4,8 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from cock_monitor.platform.telegram.handler_utils import TelegramHandlerContext
 
 MODULE_IDS = frozenset({"core", "vless", "mtproxy", "wg", "incident", "shaper", "hop"})
+
+ModuleTick = Callable[[Path, bool], int]
+TelegramHandler = Callable[["TelegramHandlerContext"], None]
 
 
 @dataclass(frozen=True)
@@ -13,6 +21,7 @@ class TelegramCommand:
     name: str
     help_text: str
     module_id: str
+    handler: TelegramHandler | None = None
 
 
 @dataclass(frozen=True)
@@ -27,6 +36,7 @@ class ModuleSpec:
     required_tools: tuple[str, ...] = ()
     schema_migrate: Callable[..., None] | None = None
     telegram_commands: tuple[TelegramCommand, ...] = ()
+    run_tick: ModuleTick | None = None
     daily_timer: bool = False
     daily_service_unit: str = ""
     daily_timer_unit: str = ""
@@ -102,6 +112,21 @@ class ModuleRegistry:
                     cmds.append(cmd)
                     seen.add(cmd.name)
         return cmds
+
+    def telegram_handler_for(self, cmd: str, env: dict[str, str]) -> TelegramCommand | None:
+        """Return registered command spec for `/name` if module enabled and handler set."""
+        token = cmd.lstrip("/").lower()
+        for spec in self.enabled_specs(env):
+            for tc in spec.telegram_commands:
+                if tc.name == token and tc.handler is not None:
+                    return tc
+        return None
+
+    def run_tick_for(self, module_id: str, env_file: Path, *, dry_run: bool) -> int:
+        spec = self.get(module_id)
+        if spec.run_tick is None:
+            raise ValueError(f"no run_tick for module: {module_id}")
+        return spec.run_tick(env_file, dry_run)
 
     def systemd_timers(self, env: dict[str, str], *, include_telegram: bool = True) -> list[str]:
         timers: list[str] = []

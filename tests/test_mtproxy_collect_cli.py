@@ -4,9 +4,9 @@ import sqlite3
 from pathlib import Path
 from typing import Protocol
 
-from cock_monitor.mtproxy_collect_cli import dispatch_mtproxy_alerts, run
 from cock_monitor.modules.mtproxy.alerts import AlertCandidate
 from cock_monitor.modules.mtproxy.repository import can_send_alert, init_schema
+from cock_monitor.mtproxy_collect_cli import dispatch_mtproxy_alerts, run
 from cock_monitor.platform.telegram.telegram_client import DeliveryResult
 
 

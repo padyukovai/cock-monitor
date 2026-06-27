@@ -5,19 +5,15 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from cock_monitor.config_loader import load_config
+from cock_monitor.platform.env_runtime import get_int, get_str, load_env_overwrite
 
-
-def get_int(name: str, default: int) -> int:
-    raw = os.environ.get(name, str(default)).strip()
-    try:
-        return int(raw)
-    except ValueError:
-        return default
-
-
-def get_str(name: str, default: str) -> str:
-    return os.environ.get(name, default).strip() or default
+__all__ = [
+    "apply_incident_defaults",
+    "get_int",
+    "get_str",
+    "load_env_overwrite",
+    "resolve_env_file",
+]
 
 
 def apply_incident_defaults() -> None:
@@ -66,13 +62,6 @@ def apply_incident_defaults() -> None:
     os.environ.setdefault("INCIDENT_ALERT_COOLDOWN_SEC", "300")
     os.environ.setdefault("INCIDENT_POSTMORTEM_ENABLE", "1")
     os.environ.setdefault("DRY_RUN", "0")
-
-
-def load_env_overwrite(path: Path) -> None:
-    """Like bash `set -a; source file` — keys from file override process env."""
-    loaded = load_config(path)
-    for k, v in loaded.app.raw.items():
-        os.environ[k] = v
 
 
 def resolve_env_file(argv0: str | None) -> Path | None:

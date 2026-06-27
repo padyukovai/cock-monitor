@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from cock_monitor.adapters import hop_links as hl
 from cock_monitor.modules.incident import level, probes, sampler
 
@@ -67,6 +66,7 @@ def test_run_once_writes_hop_links_but_ok_level_with_hop_module(
     }
 
     monkeypatch.setattr(probes, "collect_hop_links", lambda: hop_data)
+    monkeypatch.setattr(sampler, "collect_hop_links", lambda: hop_data)
     monkeypatch.setattr(probes, "collect_ping_legacy", lambda *_a, **_k: ([], 0))
     monkeypatch.setattr(probes, "collect_ping_groups", lambda: [])
     monkeypatch.setattr(probes, "collect_dns", lambda *_a, **_k: (1, 10, ""))

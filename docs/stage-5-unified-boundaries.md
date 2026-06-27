@@ -1,17 +1,31 @@
 # Этап 5: единые архитектурные границы (VLESS / Incident / Shaper)
 
+## Слои (v2)
+
+| Слой | Назначение |
+|------|------------|
+| `cock_monitor/modules/*` | Модуль: `register.py` (registry), `service.py` / tick, `telegram_handlers.py`, domain-specific code |
+| `cock_monitor/platform/*` | Registry, install, shared env (`env_runtime`), Telegram dispatch shell |
+| `cock_monitor/services/*` | **Shared kernel** — use-cases для core conntrack и VLESS (исторически до полной упаковки в modules) |
+| `cock_monitor/adapters/*` | OS / внешние системы (proc, sqlite, xui) |
+| `cock_monitor/storage/*` | SQLite repositories и миграции |
+
+`python -m cock_monitor run <module>` и Telegram-команды маршрутизируются через `ModuleSpec.run_tick` и `TelegramCommand.handler` в registry — не через отдельные таблицы в `run_cli` / `dispatch.py`.
+
 ## Ownership и flow после изменений
 
 ### VLESS
 
-- owner use-case: `cock_monitor/services/vless_report_use_case.py`
+- **module orchestration:** `cock_monitor/modules/vless/` (`register.py`, `telegram_handlers.py`, `run_vless_daily_tick`)
+- **shared kernel (domain):** `cock_monitor/services/vless_report_use_case.py`
 - adapters:
   - `cock_monitor/adapters/xui_sqlite.py` — чтение источника 3x-ui (`client_traffics`, inbounds VLESS)
   - `cock_monitor/adapters/vless_access_log.py` — извлечение IP-агрегаций из access.log окна
   - `cock_monitor/adapters/vless_report_formatter.py` — форматирование текста отчета
   - `cock_monitor/storage/vless_repository.py` — snapshots/checkpoints/meta в `METRICS_DB`
 - entrypoint:
-  - `cock_monitor/services/vless_report.py` — thin CLI wrapper + backward-compatible API
+  - `python -m cock_monitor run vless` → `modules/vless/telegram_handlers.run_vless_daily_tick`
+  - CLI: `cock_monitor/services/vless_report.py` (thin wrapper)
 
 Flow: CLI/handler -> use-case -> adapters/storage -> Telegram(optional).
 

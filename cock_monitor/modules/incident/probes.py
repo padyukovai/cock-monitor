@@ -10,6 +10,8 @@ from typing import Any
 
 from cock_monitor.adapters.hop_links import (
     collect_hop_links as collect_hop_links_raw,
+)
+from cock_monitor.adapters.hop_links import (
     resolve_hop_links_raw,
 )
 from cock_monitor.adapters.linux_host import (
@@ -17,7 +19,6 @@ from cock_monitor.adapters.linux_host import (
     read_conntrack_fill,
     read_sockstat_tcp,
 )
-
 from cock_monitor.modules.incident.env import get_int
 
 

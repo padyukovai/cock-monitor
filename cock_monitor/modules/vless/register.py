@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from cock_monitor.modules.vless.telegram_handlers import handle_vless_delta, run_vless_daily_tick
 from cock_monitor.platform.registry import ModuleRegistry, ModuleSpec, TelegramCommand
 
 
@@ -26,7 +27,8 @@ def register(registry: ModuleRegistry) -> None:
             apt_packages=("python3-matplotlib",),
             schema_migrate=_migrate_vless,
             telegram_commands=(
-                TelegramCommand("vless_delta", "VLESS usage delta report", "vless"),
+                TelegramCommand("vless_delta", "VLESS usage delta report", "vless", handler=handle_vless_delta),
             ),
+            run_tick=lambda env, dry: run_vless_daily_tick(env, dry_run=dry),
         )
     )

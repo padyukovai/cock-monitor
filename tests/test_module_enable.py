@@ -6,10 +6,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
+from cock_monitor.modules.incident import sampler
 from cock_monitor.modules.mtproxy.config import MtproxyConfig
 from cock_monitor.platform.registry import module_enabled
-from cock_monitor.modules.incident import sampler
 
 
 @pytest.mark.parametrize(
