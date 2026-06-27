@@ -11,6 +11,14 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FRAGMENTS_DIR = _REPO_ROOT / "config" / "fragments"
 _PROFILES_DIR = _REPO_ROOT / "config" / "profiles"
 
+PROFILE_OPS_KEYS = frozenset(
+    {
+        "POST_INSTALL_SCRIPTS",
+        "PREFLIGHT_SYSTEMD_UNITS",
+        "PREFLIGHT_TCP_PORTS",
+    }
+)
+
 
 def repo_root() -> Path:
     return _REPO_ROOT
@@ -78,6 +86,8 @@ def build_env_from_profile(
         merged.update(overrides)
     if "ENABLED_MODULES" not in merged:
         merged["ENABLED_MODULES"] = ",".join(enabled)
+    for key in PROFILE_OPS_KEYS:
+        merged.pop(key, None)
     return merged
 
 

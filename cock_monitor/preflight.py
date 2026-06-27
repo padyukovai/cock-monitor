@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 from cock_monitor.config_loader import load_config
 from cock_monitor.defaults import DEFAULT_ENV_FILE
+from cock_monitor.platform.profile_ops import ProfileOps, load_profile_ops
 from cock_monitor.platform.registry import get_registry, module_enabled, parse_enabled_modules
 
 
@@ -40,11 +42,66 @@ def _check_tool(name: str, *, required: bool) -> tuple[str, bool]:
     return (f"warn: {msg}", True)
 
 
+def _check_systemd_unit(unit: str) -> tuple[str, bool]:
+    unit_paths = (
+        Path("/etc/systemd/system") / unit,
+        Path("/lib/systemd/system") / unit,
+        Path("/usr/lib/systemd/system") / unit,
+    )
+    if not any(p.is_file() for p in unit_paths):
+        return (f"ERROR: systemd unit not found: {unit}", False)
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-active", unit],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        status = (r.stdout or "").strip() or "unknown"
+        if status == "active":
+            return (f"ok: systemd {unit} active", True)
+        return (f"warn: systemd {unit} installed but status={status}", True)
+    except (OSError, subprocess.SubprocessError) as e:
+        return (f"warn: cannot check systemd {unit}: {e}", True)
+
+
+def _check_tcp_port_listen(port: int) -> tuple[str, bool]:
+    try:
+        r = subprocess.run(
+            ["ss", "-ltn", f"sport = :{port}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if f":{port}" in (r.stdout or ""):
+            return (f"ok: TCP port {port} listening", True)
+        return (f"warn: TCP port {port} not listening", True)
+    except (OSError, subprocess.SubprocessError) as e:
+        return (f"warn: cannot check TCP port {port}: {e}", True)
+
+
+def _run_profile_ops_checks(ops: ProfileOps) -> tuple[list[str], bool]:
+    lines: list[str] = []
+    ok = True
+    for unit in ops.preflight_systemd_units:
+        text, step_ok = _check_systemd_unit(unit)
+        lines.append(text)
+        ok = ok and step_ok
+    for port in ops.preflight_tcp_ports:
+        text, step_ok = _check_tcp_port_listen(port)
+        lines.append(text)
+        ok = ok and step_ok
+    return lines, ok
+
+
 def run_preflight(
     env_path: Path | None,
     *,
     minimal: bool,
     implicit_env_path: bool = False,
+    profile: str | None = None,
 ) -> int:
     ok = True
     lines: list[str] = []
@@ -137,6 +194,17 @@ def run_preflight(
                     "install python3-matplotlib for /chart and PNG reports"
                 )
 
+    if profile and not minimal:
+        try:
+            ops = load_profile_ops(profile)
+            lines.append(f"ok: profile ops {profile}")
+            ops_lines, ops_ok = _run_profile_ops_checks(ops)
+            lines.extend(ops_lines)
+            ok = ok and ops_ok
+        except FileNotFoundError as e:
+            lines.append(f"ERROR: {e}")
+            ok = False
+
     for line in lines:
         print(line, file=sys.stdout)
 
@@ -155,6 +223,10 @@ def main(argv: list[str] | None = None) -> int:
         "--minimal",
         action="store_true",
         help="Only check curl, sqlite3, conntrack warning; skip env-driven checks",
+    )
+    parser.add_argument(
+        "--profile",
+        help="Profile name for PREFLIGHT_SYSTEMD_UNITS / PREFLIGHT_TCP_PORTS checks",
     )
     parser.add_argument(
         "env_file_positional",
@@ -178,4 +250,5 @@ def main(argv: list[str] | None = None) -> int:
         env_path,
         minimal=args.minimal,
         implicit_env_path=implicit_env_path,
+        profile=args.profile,
     )

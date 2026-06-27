@@ -40,13 +40,14 @@ RF2 example:
 
 ```bash
 sudo bash install/install.sh --profile stack-rf2-wg --token '...' --chat-id '...' --wipe-data
+sudo bash install/rf2/patch-xray-hop-http-proxy.sh   # if not using --run-post-install
 ```
 
 Helsinki (MTProxy only):
 
 ```bash
 sudo bash install/install.sh --profile stack-mtproxy --token '...' --chat-id '...' --wipe-data
-# then: install/mtproto/* for mtproto.service
+# then: sudo bash install/mtproto/restore-mtproxy.sh (see install checklist)
 ```
 
 Germany / USA (exit-node):
@@ -59,8 +60,12 @@ RF3 example (hop link monitoring to Germany / USA exits):
 
 ```bash
 sudo bash install/install.sh --profile stack-rf3 --token '...' --chat-id '...' --wipe-data
-sudo bash install/rf3/setup-hop-probe.sh   # optional: SOCKS probe + TELEGRAM_PROXY_URL
+# install prints post-install checklist; then:
+sudo bash install/rf3/setup-hop-probe.sh   # creates xray-hop-probe.service
+# or: add --run-post-install to install.sh to run profile scripts automatically
 ```
+
+See [install/rf3/README.md](rf3/README.md).
 
 On Germany (optional hop inbound monitoring without hop module), add to `/etc/cock-monitor.env`:
 
@@ -83,6 +88,20 @@ sudo .venv/bin/python -m cock_monitor run core /etc/cock-monitor.env --dry-run
 ```
 
 Telegram: `/help` shows only commands for enabled modules.
+
+## Profile ops metadata
+
+Profiles may declare ops keys (not written to `/etc/cock-monitor.env`):
+
+| Key | Purpose |
+|-----|---------|
+| `POST_INSTALL_SCRIPTS` | Manual steps printed after install (`--run-post-install` to execute) |
+| `PREFLIGHT_SYSTEMD_UNITS` | Units checked by `preflight --profile <name>` |
+| `PREFLIGHT_TCP_PORTS` | Local listen ports checked by preflight |
+
+```bash
+sudo .venv/bin/python -m cock_monitor preflight --profile stack-rf3 /etc/cock-monitor.env
+```
 
 ## Telegram token (interactive)
 

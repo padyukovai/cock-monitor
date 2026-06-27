@@ -11,6 +11,7 @@ from pathlib import Path
 
 from cock_monitor.platform.config import build_env_from_profile, repo_root, write_env_file
 from cock_monitor.platform.daily_runners import exec_start_line, is_daily_service
+from cock_monitor.platform.profile_ops import format_post_install_checklist, load_profile_ops
 from cock_monitor.platform.registry import get_registry
 from cock_monitor.platform.storage.manager import StorageManager
 
@@ -110,6 +111,35 @@ def collect_install_units(env: dict[str, str]) -> set[str]:
     return get_registry().install_systemd_units(env)
 
 
+def run_post_install_scripts(profile: str, repo: Path) -> int:
+    """Run profile POST_INSTALL_SCRIPTS (only when explicitly requested)."""
+    try:
+        ops = load_profile_ops(profile)
+    except FileNotFoundError as e:
+        print(f"post-install: {e}", file=sys.stderr)
+        return 1
+    if not ops.post_install_scripts:
+        print("post-install: no scripts for profile", file=sys.stderr)
+        return 0
+    rc = 0
+    for script in ops.post_install_scripts:
+        path = (repo / script).resolve()
+        if not path.is_file():
+            print(f"ERROR: post-install script not found: {path}", file=sys.stderr)
+            rc = 1
+            continue
+        print(f"post-install: bash {script}")
+        result = subprocess.run(["bash", str(path)], cwd=str(repo), check=False)
+        if result.returncode != 0:
+            rc = result.returncode
+    return rc
+
+
+def print_post_install_checklist(profile: str) -> None:
+    for line in format_post_install_checklist(profile):
+        print(line)
+
+
 def install(
     *,
     profile: str,
@@ -120,6 +150,7 @@ def install(
     token: str | None,
     chat_id: str | None,
     repo: Path,
+    run_post_install: bool = False,
 ) -> int:
     if os.geteuid() != 0:
         print("install: run as root (sudo)", file=sys.stderr)
@@ -172,6 +203,11 @@ def install(
     print("install complete. enabled timers:")
     for t in timers:
         print(f"  {t}")
+    print_post_install_checklist(profile)
+    if run_post_install:
+        post_rc = run_post_install_scripts(profile, repo)
+        if post_rc != 0:
+            return post_rc
     return 0
 
 
@@ -185,6 +221,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", default=str(repo_root()))
     parser.add_argument("--token")
     parser.add_argument("--chat-id")
+    parser.add_argument(
+        "--run-post-install",
+        action="store_true",
+        help="Run profile POST_INSTALL_SCRIPTS after install (default: print checklist only)",
+    )
     parser.add_argument("command", choices=["install", "uninstall"], nargs="?", default="install")
     args = parser.parse_args(argv)
 
@@ -203,4 +244,5 @@ def main(argv: list[str] | None = None) -> int:
         token=args.token,
         chat_id=args.chat_id,
         repo=Path(args.repo).resolve(),
+        run_post_install=args.run_post_install,
     )

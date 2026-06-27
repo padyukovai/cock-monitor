@@ -205,9 +205,9 @@ RF3 требует `setup-hop-probe.sh`, RF2 — `patch-xray-hop-http-proxy.sh`,
 
 ### Критерии готовности
 
-- [ ] `install --profile stack-rf3` выводит: «run install/rf3/setup-hop-probe.sh».
-- [ ] `preflight --profile stack-rf3` проверяет наличие `xray-hop-probe.service` (если в PREFLIGHT).
-- [ ] Post-install **не запускается** без явного флага (безопасность).
+- [x] `install --profile stack-rf3` выводит: «run install/rf3/setup-hop-probe.sh».
+- [x] `preflight --profile stack-rf3` проверяет наличие `xray-hop-probe.service` (если в PREFLIGHT).
+- [x] Post-install **не запускается** без явного флага (безопасность).
 - [ ] `pytest`, `ruff` OK.
 
 ### Оценка объёма

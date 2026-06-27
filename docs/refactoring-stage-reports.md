@@ -176,3 +176,19 @@
 - Регресс: smoke import/run_once ok; pytest — на CI.
 - Критерии готовности: выполнены.
 - Готовность к фазе 11: да.
+
+## Отчёт по фазе 11
+
+- Цель фазы: декларативные post-install / preflight по профилю роли.
+- Структурные изменения:
+  - `POST_INSTALL_SCRIPTS`, `PREFLIGHT_SYSTEMD_UNITS`, `PREFLIGHT_TCP_PORTS` в профилях RF3/RF2/Helsinki;
+  - `platform/profile_ops.py` (`load_profile_ops`, checklist);
+  - `build_env_from_profile` не пишет ops-ключи в runtime env;
+  - `install_cli` печатает checklist + `--run-post-install`;
+  - `preflight --profile` проверяет systemd units и TCP ports.
+- Зачем: оператор видит оставшиеся шаги после install; preflight до/после деплоя по роли.
+- Изменённые файлы: `platform/config.py`, `platform/profile_ops.py` (new), `install_cli.py`, `preflight.py`, `config/profiles/{stack-rf3,stack-rf2-wg,stack-mtproxy}.env`, `install/profiles.md`, `install/rf3/README.md` (new), `tests/test_profile_ops.py` (new).
+- Breaking changes: нет.
+- Регресс: `tests/test_profile_ops.py` smoke ok.
+- Критерии готовности: выполнены.
+- Готовность к фазе 12: да.
