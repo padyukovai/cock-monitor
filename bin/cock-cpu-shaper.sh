@@ -39,8 +39,22 @@ load_env_file() {
   set +a
 }
 
+shaper_enabled() {
+  local modules="${ENABLED_MODULES:-core}"
+  local part
+  modules="${modules// /}"
+  IFS=',' read -ra _shaper_mods <<<"$modules"
+  for part in "${_shaper_mods[@]}"; do
+    [[ -n "$part" && "$part" == "shaper" ]] && return 0
+  done
+  if [[ "${SHAPER_ENABLE:-0}" == "1" ]]; then
+    echo "warn: SHAPER_ENABLE is deprecated; use ENABLED_MODULES=core,shaper (or add shaper to ENABLED_MODULES)" >&2
+    return 0
+  fi
+  return 1
+}
+
 apply_shaper_defaults() {
-  SHAPER_ENABLE="${SHAPER_ENABLE:-0}"
   SHAPER_IFACE="${SHAPER_IFACE:-ens3}"
   SHAPER_VPN_PORTS="${SHAPER_VPN_PORTS:-443,2053,37346}"
   SHAPER_MAX_RATE_MBIT="${SHAPER_MAX_RATE_MBIT:-1000}"
@@ -171,10 +185,10 @@ main() {
   local ts
   ts=$(now_epoch)
 
-  if [[ "$SHAPER_ENABLE" != "1" ]]; then
+  if ! shaper_enabled; then
     shaper_state_write_kv "enabled=0\nts=${ts}\niface=${SHAPER_IFACE}"
-    local disabled_msg="cpu_shaper: disabled (SHAPER_ENABLE=0); tc unchanged on ${SHAPER_IFACE}"
-    echo "${disabled_msg} [warn: if cock-shaper.timer is active, disable it to avoid needless runs]" >&2
+    local disabled_msg="cpu_shaper: disabled (shaper not in ENABLED_MODULES); tc unchanged on ${SHAPER_IFACE}"
+    echo "${disabled_msg} [warn: if cock-monitor-shaper.timer is active, disable it to avoid needless runs]" >&2
     {
       echo "ts=${ts}"
       echo "iface=${SHAPER_IFACE}"

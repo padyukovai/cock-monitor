@@ -4,7 +4,8 @@ v2 replaces monolithic env flags and legacy systemd units with **ENABLED_MODULES
 
 ## What changed
 
-- Config: `ENABLED_MODULES=core,vless,...` instead of `MTPROXY_ENABLE`, `INCIDENT_SAMPLER_ENABLE`, etc.
+- Config: `ENABLED_MODULES=core,vless,...` is the **only** switch for optional modules.
+- Legacy flags `MTPROXY_ENABLE`, `INCIDENT_SAMPLER_ENABLE`, `SHAPER_ENABLE` are **deprecated** (still honored with a stderr warning during transition; remove them from env after migrate).
 - systemd: `cock-monitor-<module>.timer` instead of `cock-monitor.service`, `cock-mtproxy-*`, etc.
 - SQLite: fresh `metrics.db` (no migration from v1)
 - CLI: `python -m cock_monitor run <module> /etc/cock-monitor.env`

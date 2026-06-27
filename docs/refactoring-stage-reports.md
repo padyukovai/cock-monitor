@@ -109,3 +109,24 @@
 - Критерии готовности этапа: выполнены.
 - Риски/хвосты: production e2e smoke (`/status`, `/chart`, `/vless_delta`, `/mt_*`) после выката.
 - Готовность к следующему этапу: да.
+
+## Отчёт по фазе 7
+
+- Цель фазы: единый источник включения модулей — `ENABLED_MODULES` вместо legacy-флагов `SHAPER_ENABLE`, `INCIDENT_SAMPLER_ENABLE`, `MTPROXY_ENABLE`.
+- Структурные изменения:
+  - добавлен `cock_monitor/platform/legacy_enable.py` (`resolve_module_enabled`) с deprecated fallback для legacy-флагов;
+  - `bin/cock-cpu-shaper.sh` проверяет `shaper` в `ENABLED_MODULES`;
+  - `incident_sampler._incident_enabled()` и `MtproxyConfig` используют `resolve_module_enabled`;
+  - `configure_cli` пишет `ENABLED_MODULES` при apply и не выставляет legacy-флаги.
+- Зачем: timer модуля и фактическая логика больше не расходятся; `stack-3xui` активирует shaper без отдельного `SHAPER_ENABLE=1`.
+- Изменённые файлы: `cock_monitor/platform/legacy_enable.py` (new), `bin/cock-cpu-shaper.sh`, `cock_monitor/services/incident_sampler.py`, `cock_monitor/modules/mtproxy/config.py`, `cock_monitor/configure_cli.py`, `config.example.env`, `config/fragments/incident.env`, `config/fragments/shaper.env`, `README.md`, `docs/v2-migration.md`, `tests/test_module_enable.py` (new).
+- Breaking changes: нет (legacy-флаги по-прежнему работают с stderr warning).
+- Миграции данных: нет.
+- Обновления документации: `README.md`, `docs/v2-migration.md`, `config.example.env`, фрагменты env.
+- Регресс-проверки:
+  - pytest: не запускался (в `.venv` нет pip/pytest); добавлен `tests/test_module_enable.py`
+  - ruff: не запускался (нет ruff в venv)
+  - smoke: `resolve_module_enabled` import ok; `stack-3xui` + shaper dry-run → активный shaper; disabled без `shaper` в `ENABLED_MODULES` → корректное сообщение
+- Критерии готовности: выполнены (по smoke; pytest — на CI/хосте с dev deps).
+- Риски/хвосты: на серверах с legacy env удалить `SHAPER_ENABLE`/`INCIDENT_SAMPLER_ENABLE`/`MTPROXY_ENABLE` после redeploy; `install/incident/enable-incident-sampler.sh` всё ещё пишет legacy-флаг (вне scope фазы 7).
+- Готовность к фазе 8: да.

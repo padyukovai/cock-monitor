@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from cock_monitor.defaults import DEFAULT_METRICS_DB
-from cock_monitor.platform.registry import module_enabled
+from cock_monitor.platform.legacy_enable import resolve_module_enabled
 
 
 def to_int(raw: str | None, default: int) -> int:
@@ -39,7 +39,7 @@ class MtproxyConfig:
     def from_env_map(cls, env: dict[str, str]) -> MtproxyConfig:
         db = env.get("METRICS_DB", DEFAULT_METRICS_DB).strip()
         return cls(
-            enabled=module_enabled("mtproxy", env),
+            enabled=resolve_module_enabled("mtproxy", env),
             db_path=Path(db).expanduser(),
             mtproxy_port=to_int(env.get("MTPROXY_PORT"), 8443),
             max_connections_per_ip=to_int(env.get("MTPROXY_MAX_CONNECTIONS_PER_IP"), 20),

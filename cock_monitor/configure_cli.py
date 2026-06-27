@@ -134,7 +134,6 @@ def _configure_core(state: WizardState, ask: InputFn) -> None:
 def _configure_mtproxy(state: WizardState, ask: InputFn) -> None:
     env_values = state.env_values
     print("\n[module: mtproxy]")
-    _set_bool(env_values, "MTPROXY_ENABLE", True)
     env_values["MTPROXY_PORT"] = _prompt_int("MTPROXY_PORT", env_values.get("MTPROXY_PORT", "8443"), ask, 1)
     env_values["MTPROXY_ALERT_COOLDOWN_MINUTES"] = _prompt_int(
         "MTPROXY_ALERT_COOLDOWN_MINUTES",
@@ -166,7 +165,6 @@ def _configure_mtproxy(state: WizardState, ask: InputFn) -> None:
 def _configure_incident(state: WizardState, ask: InputFn) -> None:
     env_values = state.env_values
     print("\n[module: incident sampler]")
-    _set_bool(env_values, "INCIDENT_SAMPLER_ENABLE", True)
     _set_bool(
         env_values,
         "INCIDENT_ALERT_ENABLE",
@@ -214,7 +212,6 @@ def _configure_incident(state: WizardState, ask: InputFn) -> None:
 def _configure_shaper(state: WizardState, ask: InputFn) -> None:
     env_values = state.env_values
     print("\n[module: shaper]")
-    _set_bool(env_values, "SHAPER_ENABLE", True)
     env_values["SHAPER_IFACE"] = _prompt_nonempty("SHAPER_IFACE", env_values.get("SHAPER_IFACE", "ens3"), ask)
     env_values["SHAPER_MAX_RATE_MBIT"] = _prompt_int(
         "SHAPER_MAX_RATE_MBIT", env_values.get("SHAPER_MAX_RATE_MBIT", "100"), ask, 1
@@ -256,12 +253,10 @@ def _print_review(state: WizardState) -> None:
     print(f"sections touched: {', '.join(sorted(state.touched_sections)) or 'none'}")
     print(f"modules selected: {', '.join(sorted(state.selected_modules)) or 'none'}")
     keys = [
+        "ENABLED_MODULES",
         "TELEGRAM_CHAT_ID",
         "WARN_PERCENT",
         "CRIT_PERCENT",
-        "MTPROXY_ENABLE",
-        "INCIDENT_SAMPLER_ENABLE",
-        "SHAPER_ENABLE",
         "XUI_DB_PATH",
     ]
     for key in keys:
@@ -357,8 +352,17 @@ def _write_override(service: str, repo_root: Path, python_bin: Path, env_file: P
     path.write_text(body, encoding="utf-8")
 
 
+def _sync_enabled_modules(state: WizardState) -> None:
+    modules = {"core", *state.selected_modules}
+    order = ["core"] + sorted(m for m in modules if m != "core")
+    state.env_values["ENABLED_MODULES"] = ",".join(order)
+    for legacy in ("MTPROXY_ENABLE", "INCIDENT_SAMPLER_ENABLE", "SHAPER_ENABLE"):
+        state.env_values.pop(legacy, None)
+
+
 def _apply_configuration(state: WizardState, repo_root: Path) -> None:
     _ensure_root()
+    _sync_enabled_modules(state)
     data = _dump_env(state.env_values)
     target = state.env_file
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -400,9 +404,6 @@ def run(argv: list[str] | None = None, *, input_fn: InputFn = input) -> int:
         env_values = parse_env_file(env_file)
     else:
         env_values = {}
-    env_values.setdefault("MTPROXY_ENABLE", "0")
-    env_values.setdefault("INCIDENT_SAMPLER_ENABLE", "0")
-    env_values.setdefault("SHAPER_ENABLE", "0")
     env_values.setdefault("LA_ALERT_ENABLE", "0")
 
     state = WizardState(env_values=env_values, touched_sections=set(), selected_modules=set(), env_file=env_file)

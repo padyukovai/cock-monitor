@@ -743,11 +743,9 @@ def build_json_line(
 
 
 def _incident_enabled() -> bool:
-    if os.environ.get("INCIDENT_SAMPLER_ENABLE", "0") == "1":
-        return True
-    from cock_monitor.platform.registry import module_enabled
+    from cock_monitor.platform.legacy_enable import resolve_module_enabled
 
-    return module_enabled("incident", dict(os.environ))
+    return resolve_module_enabled("incident", dict(os.environ))
 
 
 def run_once() -> int:
