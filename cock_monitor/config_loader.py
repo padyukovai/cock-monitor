@@ -80,6 +80,9 @@ def validate_config(cfg: AppConfig) -> ConfigValidationResult:
         "MEM_",
         "WG_",
         "LA_",
+        "HOP_",
+        "BURST_",
+        "DAILY_",
     }
     for key in cfg.raw:
         if any(key.startswith(p) for p in known_prefixes):

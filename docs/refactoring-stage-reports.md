@@ -192,3 +192,18 @@
 - Регресс: `tests/test_profile_ops.py` smoke ok.
 - Критерии готовности: выполнены.
 - Готовность к фазе 12: да.
+
+## Отчёт по фазе 12
+
+- Цель фазы: именованные роли, валидация профилей, lean mtproxy.
+- Структурные изменения:
+  - `platform/roles.py` — `ROLE_PRESETS`, `profile_for_role`, `resolve_install_profile`;
+  - `platform/profile_validation.py` — `validate_profile_env`;
+  - `install --role` sugar; `config-check --profile`;
+  - `stack-mtproxy` lean: `LA_ALERT_ENABLE=0`, `MEM_ALERT_ENABLE=0`, `ALERT_ON_STATS_DELTA=0`.
+- Зачем: проще деплой по роли; раннее обнаружение несогласованных профилей; Helsinki без лишних core-алертов.
+- Изменённые файлы: `platform/roles.py` (new), `platform/profile_validation.py` (new), `install_cli.py`, `config_check_cli.py`, `config_loader.py`, `config/profiles/stack-mtproxy.env`, `install/profiles.md`, `tests/test_roles.py` (new).
+- Breaking changes: нет.
+- Регресс: `tests/test_roles.py` smoke ok.
+- Критерии готовности: выполнены.
+- Готовность к фазе 13: да.

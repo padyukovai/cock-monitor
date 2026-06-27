@@ -1,5 +1,19 @@
 # Server → profile matrix
 
+## Role presets (`install --role <name>`)
+
+| Role | Profile | Modules | Typical VPS |
+|------|---------|---------|-------------|
+| `hop-gateway` | `stack-rf3` | core, hop, incident | RF3 |
+| `exit-node` | `stack-exit-node` | core, vless, incident, shaper | Germany, USA, London |
+| `mtproxy-only` | `stack-mtproxy` | core, mtproxy | Helsinki |
+| `wg-relay` | `stack-rf2-wg` | core, wg, incident | RF2 |
+| `minimal` | `stack-rf1` | core, incident | RF1 |
+
+`install --role mtproxy-only` is equivalent to `--profile stack-mtproxy`.
+
+## Host → profile matrix
+
 | Host | SSH | Profile | Modules |
 |------|-----|---------|---------|
 | NY (cock-is) | `cock-is` | `stack-exit-node` or `stack-3xui` | core, vless, incident, shaper |

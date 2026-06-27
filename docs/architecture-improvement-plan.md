@@ -239,10 +239,10 @@ RF3 требует `setup-hop-probe.sh`, RF2 — `patch-xray-hop-http-proxy.sh`,
 
 ### Критерии готовности
 
-- [ ] `python -m cock_monitor config-check --profile stack-mtproxy` без warnings на lean-конфиге.
-- [ ] `validate_profile_env` ловит `stack-rf3` без `HOP_LINKS`.
-- [ ] `install --role mtproxy-only` эквивалентен `stack-mtproxy`.
-- [ ] Документирована таблица role → modules → VPS.
+- [x] `python -m cock_monitor config-check --profile stack-mtproxy` без warnings на lean-конфиге.
+- [x] `validate_profile_env` ловит `stack-rf3` без `HOP_LINKS`.
+- [x] `install --role mtproxy-only` эквивалентен `stack-mtproxy`.
+- [x] Документирована таблица role → modules → VPS.
 - [ ] `pytest`, `ruff` OK.
 
 ### Оценка объёма

@@ -13,6 +13,7 @@ from cock_monitor.platform.config import build_env_from_profile, repo_root, writ
 from cock_monitor.platform.daily_runners import exec_start_line, is_daily_service
 from cock_monitor.platform.profile_ops import format_post_install_checklist, load_profile_ops
 from cock_monitor.platform.registry import get_registry
+from cock_monitor.platform.roles import resolve_install_profile
 from cock_monitor.platform.storage.manager import StorageManager
 
 LEGACY_UNITS = [
@@ -214,6 +215,10 @@ def install(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="cock-monitor v2 install")
     parser.add_argument("--profile", default="core")
+    parser.add_argument(
+        "--role",
+        help="Role preset (maps to profile; overrides --profile when set)",
+    )
     parser.add_argument("--modules", help="Override ENABLED_MODULES (comma-separated)")
     parser.add_argument("--wipe-data", action="store_true")
     parser.add_argument("--env-file", default="/etc/cock-monitor.env")
@@ -235,8 +240,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "uninstall":
         return uninstall(wipe_data=args.wipe_data, env_file=env_file, data_dir=data_dir)
+    try:
+        profile = resolve_install_profile(role=args.role, profile=args.profile)
+    except ValueError as e:
+        print(f"install: {e}", file=sys.stderr)
+        return 2
     return install(
-        profile=args.profile,
+        profile=profile,
         modules_override=modules,
         wipe_data=args.wipe_data,
         env_file=env_file,
