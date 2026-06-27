@@ -43,6 +43,8 @@ def test_stack_exit_node_alias_matches_3xui_modules() -> None:
     xui_env = build_env_from_profile("stack-3xui")
     assert exit_env["ENABLED_MODULES"] == xui_env["ENABLED_MODULES"]
     assert collect_install_units(exit_env) == collect_install_units(xui_env)
+    assert exit_env["XUI_DB_PATH"] == "/etc/x-ui/x-ui.db"
+    assert xui_env["XUI_DB_PATH"] == "/etc/x-ui/x-ui.db"
 
 
 def test_daily_runner_exec_start_argv() -> None:
