@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mtproxy_module.collector import parse_iptables_monitor_stdout, parse_ss_stdout
+from cock_monitor.modules.mtproxy.collector import parse_iptables_monitor_stdout, parse_ss_stdout
 
 
 def test_parse_ss_stdout_ipv4_and_ipv6() -> None:

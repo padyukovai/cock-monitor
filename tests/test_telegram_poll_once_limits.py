@@ -1,20 +1,29 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 
-from telegram_bot.poll_once import poll_once
+from cock_monitor.modules.mtproxy.config import MtproxyConfig
+from cock_monitor.platform.telegram.config import BotConfig
+from cock_monitor.platform.telegram.poll_once import poll_once
 
 
-def _cfg(tmp_path: Path, *, max_updates: int, max_seconds: int) -> SimpleNamespace:
-    return SimpleNamespace(
+def _cfg(tmp_path: Path, *, max_updates: int, max_seconds: int) -> BotConfig:
+    env_file = tmp_path / "env"
+    env_file.write_text(
+        "ENABLED_MODULES=core\nTELEGRAM_BOT_TOKEN=token\nTELEGRAM_CHAT_ID=1\n",
+        encoding="utf-8",
+    )
+    return BotConfig(
+        env_file=env_file,
+        env={"ENABLED_MODULES": "core"},
         bot_token="token",
-        offset_file=tmp_path / "offset",
-        env_file=tmp_path / "env",
         chat_id="1",
-        mtproxy=SimpleNamespace(enabled=False),
+        offset_file=tmp_path / "offset",
+        monitor_home=tmp_path,
+        mtproxy=MtproxyConfig.from_env_map({}),
         max_updates_per_run=max_updates,
         max_seconds_per_run=max_seconds,
+        proxy_url=None,
     )
 
 
@@ -26,7 +35,7 @@ def test_poll_once_stops_by_max_updates(
     written_offsets: list[int] = []
 
     class _Client:
-        def __init__(self, _token: str) -> None:
+        def __init__(self, _token: str, proxy_url: str | None = None) -> None:
             pass
 
         def set_my_commands(self, _commands: list[tuple[str, str]]) -> None:
@@ -58,7 +67,7 @@ def test_poll_once_stops_by_max_seconds(
     times = iter([0.0, 0.0, 1.0, 2.1, 2.1, 2.1])
 
     class _Client:
-        def __init__(self, _token: str) -> None:
+        def __init__(self, _token: str, proxy_url: str | None = None) -> None:
             pass
 
         def set_my_commands(self, _commands: list[tuple[str, str]]) -> None:
@@ -85,7 +94,7 @@ def test_poll_once_sets_menu_commands_with_mtproxy_disabled(
     captured: list[list[tuple[str, str]]] = []
 
     class _Client:
-        def __init__(self, _token: str) -> None:
+        def __init__(self, _token: str, proxy_url: str | None = None) -> None:
             pass
 
         def set_my_commands(self, commands: list[tuple[str, str]]) -> None:

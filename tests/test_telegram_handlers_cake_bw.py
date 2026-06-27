@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from telegram_bot.handlers import handle_update
+from cock_monitor.platform.telegram.dispatch import handle_update
 
 
 class _Client:

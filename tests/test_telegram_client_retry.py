@@ -7,7 +7,7 @@ import urllib.parse
 import urllib.request
 
 import pytest
-from telegram_bot.telegram_client import TelegramClient
+from cock_monitor.platform.telegram.telegram_client import TelegramClient
 
 
 class _FakeResponse:

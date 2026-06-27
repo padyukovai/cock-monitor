@@ -33,6 +33,8 @@ LEGACY_UNITS = [
     "cock-shaper.timer",
     "cock-monitor-incident-sampler.service",
     "cock-monitor-incident-sampler.timer",
+    "cock-monitor-vless.service",
+    "cock-monitor-vless.timer",
 ]
 
 V2_UNITS = [

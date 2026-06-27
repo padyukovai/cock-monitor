@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from telegram_bot.telegram_client import TelegramClient
+from cock_monitor.platform.telegram.client import TelegramClient
 
 from cock_monitor.adapters.vless_access_log import collect_access_log_ip_summary
 from cock_monitor.adapters.vless_report_formatter import (

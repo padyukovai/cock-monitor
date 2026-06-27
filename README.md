@@ -31,18 +31,16 @@ sudo bash install/install.sh --profile core --token 'BOT_TOKEN' --chat-id 'CHAT_
 sudo bash install/uninstall.sh --wipe-data
 ```
 
-### Legacy: install-ubuntu-minimal.sh
-
-Устарел; используйте `install/install.sh`. Старый скрипт оставлен для совместимости.
-
 ### Ручная установка (альтернатива)
+
+Предпочтительно: `sudo bash install/install.sh --profile <name>`.  
+Если копируете вручную — достаточно `cock_monitor/`, `bin/`, `lib/`, `systemd/`, `config/`.
 
 1. Скопируйте репозиторий на сервер, например в `/opt/cock-monitor`:
 
    ```bash
    sudo mkdir -p /opt/cock-monitor
-   sudo cp -a bin lib telegram_bot cock_monitor systemd config.example.env config.minimal.env README.md /opt/cock-monitor/
-   sudo chmod +x /opt/cock-monitor/bin/check-conntrack.sh /opt/cock-monitor/bin/cock-status.sh
+   sudo cp -a bin lib cock_monitor systemd config.example.env config.minimal.env README.md /opt/cock-monitor/
    ```
 
 2. Создайте конфиг с секретами:
@@ -113,38 +111,38 @@ sudo /opt/cock-monitor/bin/cock-status.sh /etc/cock-monitor.env
 
 ### Опционально: команды в Telegram (`/status`, `/chart`, `/vless_delta`)
 
-Алерты по расписанию шлёт `python -m cock_monitor conntrack-check` (в `systemd/cock-monitor.service`). Чтобы **по запросу** получать полный текст статуса в том же чате, включите опрос **getUpdates** без постоянного демона: разовый запуск Python по таймеру.
+Алерты по расписанию шлёт `python -m cock_monitor run core` (timer `cock-monitor-core.timer`). Чтобы **по запросу** получать полный текст статуса в том же чате, включите опрос **getUpdates** без постоянного демона: разовый запуск Python по таймеру.
 
 - **`/chart`** строит PNG за последние 24 часа из `METRICS_DB` тем же скриптом, что и ежедневный таймер; на сервере должен быть установлен **matplotlib**.
 - **`/vless_delta`** запускает `python -m cock_monitor vless-report --mode since-last-sent --send-telegram` и отправляет отчёт по VLESS-дельте с момента **предыдущего `/vless_delta` или другого запуска в том же режиме**.
-- **`/cake_bw <mbit>`** обновляет `SHAPER_MAX_RATE_MBIT` в `.env` (верхний лимит CAKE для `cock-cpu-shaper.sh`); новое значение применяется на ближайшем тике `cock-shaper.timer`.
+- **`/cake_bw <mbit>`** обновляет `SHAPER_MAX_RATE_MBIT` в `.env` (верхний лимит CAKE для `cock-cpu-shaper.sh`); новое значение применяется на ближайшем тике `cock-monitor-shaper.timer`.
 
 - Команды обрабатываются только из чата с вашим `TELEGRAM_CHAT_ID` (как и исходящие алерты).
-- Максимальная задержка ответа ≈ периоду таймера (по умолчанию **3 минуты** в [`systemd/cock-monitor-telegram-bot.timer`](systemd/cock-monitor-telegram-bot.timer)).
+- Максимальная задержка ответа ≈ периоду таймера (по умолчанию **3 минуты** в [`systemd/cock-monitor-telegram.timer`](systemd/cock-monitor-telegram.timer)).
 - Не включайте **webhook** для того же бота и не запускайте два параллельных опроса с одним токеном.
 
 Установка unit-файлов (пути подправьте при необходимости):
 
 ```bash
-sudo install -m644 /opt/cock-monitor/systemd/cock-monitor-telegram-bot.service \
-  /opt/cock-monitor/systemd/cock-monitor-telegram-bot.timer /etc/systemd/system/
+sudo install -m644 /opt/cock-monitor/systemd/cock-monitor-telegram.service \
+  /opt/cock-monitor/systemd/cock-monitor-telegram.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now cock-monitor-telegram-bot.timer
-systemctl list-timers cock-monitor-telegram-bot.timer --no-pager
+sudo systemctl enable --now cock-monitor-telegram.timer
+systemctl list-timers cock-monitor-telegram.timer --no-pager
 ```
 
 Разовая проверка:
 
 ```bash
-sudo systemctl start cock-monitor-telegram-bot.service
-sudo systemctl status cock-monitor-telegram-bot.service --no-pager
+sudo systemctl start cock-monitor-telegram.service
+sudo systemctl status cock-monitor-telegram.service --no-pager
 ```
 
 Ручной запуск того же, что делает service (нужен `COCK_MONITOR_HOME`):
 
 ```bash
 cd /opt/cock-monitor && sudo env COCK_MONITOR_HOME=/opt/cock-monitor \
-  python3 -m telegram_bot --poll-once /etc/cock-monitor.env
+  .venv/bin/python -m cock_monitor.platform.telegram --poll-once /etc/cock-monitor.env
 ```
 
 ### Опциональный модуль MTProxy
@@ -177,21 +175,10 @@ MTPROXY_DAILY_TOP_N=10
 - `mtproxy_state`
 - `mtproxy_ip_geo_cache`
 
-Таймеры модуля:
+Таймеры модуля (ставятся `install.sh` при `ENABLED_MODULES=...,mtproxy`):
 
-- [`systemd/cock-mtproxy-monitor.timer`](systemd/cock-mtproxy-monitor.timer) + [`systemd/cock-mtproxy-monitor.service`](systemd/cock-mtproxy-monitor.service) — сбор/алерты (каждые 5 минут)
-- [`systemd/cock-mtproxy-daily.timer`](systemd/cock-mtproxy-daily.timer) + [`systemd/cock-mtproxy-daily.service`](systemd/cock-mtproxy-daily.service) — суточный отчёт в Telegram
-
-Установка unit-файлов:
-
-```bash
-sudo install -m644 /opt/cock-monitor/systemd/cock-mtproxy-monitor.service \
-  /opt/cock-monitor/systemd/cock-mtproxy-monitor.timer \
-  /opt/cock-monitor/systemd/cock-mtproxy-daily.service \
-  /opt/cock-monitor/systemd/cock-mtproxy-daily.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now cock-mtproxy-monitor.timer cock-mtproxy-daily.timer
-```
+- [`systemd/cock-monitor-mtproxy.timer`](systemd/cock-monitor-mtproxy.timer) — сбор/алерты (каждые 5 минут)
+- [`systemd/cock-mtproxy-daily.timer`](systemd/cock-mtproxy-daily.timer) — суточный отчёт в Telegram
 
 ### Какие файлы в `/proc` читаются
 
@@ -206,23 +193,23 @@ sudo systemctl enable --now cock-mtproxy-monitor.timer cock-mtproxy-daily.timer
 
 ## systemd (рекомендуется)
 
-В unit-файле [`systemd/cock-monitor.service`](systemd/cock-monitor.service) путь `ExecStart` по умолчанию указывает на `/opt/cock-monitor/...`. При другом расположении отредактируйте файл или создайте drop-in:
+В unit-файле [`systemd/cock-monitor-core.service`](systemd/cock-monitor-core.service) путь `ExecStart` по умолчанию указывает на `/opt/cock-monitor/...`. При другом расположении отредактируйте файл или создайте drop-in:
 
 ```bash
-sudo install -m644 systemd/cock-monitor.service systemd/cock-monitor.timer /etc/systemd/system/
+sudo install -m644 systemd/cock-monitor-core.service systemd/cock-monitor-core.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now cock-monitor.timer
-systemctl list-timers cock-monitor.timer
+sudo systemctl enable --now cock-monitor-core.timer
+systemctl list-timers cock-monitor-core.timer
 ```
 
 Проверка разового запуска:
 
 ```bash
-sudo systemctl start cock-monitor.service
-sudo systemctl status cock-monitor.service
+sudo systemctl start cock-monitor-core.service
+sudo systemctl status cock-monitor-core.service
 ```
 
-Интервал в [`systemd/cock-monitor.timer`](systemd/cock-monitor.timer): по умолчанию **5 минут** после предыдущего завершения (`OnUnitActiveSec=5min`). Для более редких проверок увеличьте значение.
+Интервал в [`systemd/cock-monitor-core.timer`](systemd/cock-monitor-core.timer): по умолчанию **5 минут** после предыдущего завершения (`OnUnitActiveSec=5min`). Для более редких проверок увеличьте значение.
 
 ## cron
 
@@ -378,7 +365,7 @@ Potential heavy downloaders:
 
 ### Умный "CPU-Aware" Шейпер с использованием CAKE
 
-Скрипт [`bin/cock-cpu-shaper.sh`](bin/cock-cpu-shaper.sh) (запускается по расписанию `cock-shaper.timer` каждые 10-15 секунд) остаётся на bash: напрямую вызывает `tc`/`ip`, читает `/proc/stat` и атомарно обновляет state-файлы; перенос в Python не упрощает сценарий. Он отслеживает загрузку CPU: если `cpu_pct` превышает пороговое значение, скрипт «прикручивает вентиль» — плавно снижает пропускную способность для VPN портов. Если нагрузка падает — скрипт вновь поднимает лимит.
+Скрипт [`bin/cock-cpu-shaper.sh`](bin/cock-cpu-shaper.sh) (запускается по расписанию `cock-monitor-shaper.timer` каждые 10-15 секунд) остаётся на bash: напрямую вызывает `tc`/`ip`, читает `/proc/stat` и атомарно обновляет state-файлы; перенос в Python не упрощает сценарий. Он отслеживает загрузку CPU: если `cpu_pct` превышает пороговое значение, скрипт «прикручивает вентиль» — плавно снижает пропускную способность для VPN портов. Если нагрузка падает — скрипт вновь поднимает лимит.
 
 Главная фишка: для ограничения скорости используется встроенный в ядро планировщик **sch_cake** в режиме `dual-dsthost`. Он автоматически делит установленную ширину канала строго поровну между всеми качающими клиентами! Никакого "встал торрент - лег VPN".
 

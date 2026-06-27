@@ -4,6 +4,15 @@ JSONL-срезы каждые **10 секунд** без Telegram: ping, DNS, co
 
 ## Включение на VPS
 
+Предпочтительно v2 install:
+
+```bash
+sudo bash /opt/cock-monitor/install/install.sh --profile stack-exit-node
+# или вручную: ENABLED_MODULES=...,incident + cock-monitor-incident.timer
+```
+
+Legacy helper (только если нужен быстрый patch на старом хосте):
+
 ```bash
 sudo PUBLIC_IP=163.5.41.47 bash /opt/cock-monitor/install/incident/enable-incident-sampler.sh
 ```

@@ -1,6 +1,8 @@
 # Этап 0 — инвентаризация и контракты
 
-Базовая фиксация текущего поведения до крупных изменений. Источники: `bin/*`, `cock_monitor/*`, `mtproxy_module/*`, `telegram_bot/*`, `systemd/*`, [`README.md`](../README.md), [`config.example.env`](../config.example.env), [`DEPLOY.md`](../DEPLOY.md).
+> **Исторический документ (v1, до фаз 7–13).** Актуальные entrypoints и systemd: [`install/profiles.md`](../install/profiles.md), [`README.md`](../README.md), [`DEPLOY.md`](../DEPLOY.md). Модули: `python -m cock_monitor run <module>`, таймеры `cock-monitor-<module>.*`, включение только через `ENABLED_MODULES`.
+
+Базовая фиксация текущего поведения до крупных изменений. Источники: `bin/*`, `cock_monitor/*`, `systemd/*`, [`README.md`](../README.md), [`config.example.env`](../config.example.env), [`DEPLOY.md`](../DEPLOY.md).
 
 ## 1) Матрица сценариев (entrypoint -> входы -> выходы -> side effects -> timer)
 

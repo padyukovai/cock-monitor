@@ -11,7 +11,7 @@ PUBLIC_IP=163.5.153.32 bash /opt/cock-monitor/install/mtproto/restore-mtproxy.sh
 
 Секреты те же — **IP в ссылках меняется** (`server=...`). `proxy-secret` / `proxy-multi.conf` скачиваются с core.telegram.org; обновление — systemd timer `mtproto-config-refresh.timer` (hourly).
 
-После restore опционально: `stabilize-vps.sh` (только при reconnect-storm), `enable-incident-sampler.sh`.
+После restore опционально: `stabilize-vps.sh` (только при reconnect-storm). Incident: `sudo bash install/install.sh --profile stack-mtproxy` (или добавить `incident` в `ENABLED_MODULES`).
 
 ---
 
@@ -30,7 +30,7 @@ PUBLIC_IP=163.5.153.32 bash /opt/cock-monitor/install/mtproto/restore-mtproxy.sh
 5. **sshd drop-in** — `UseDNS no`, `GSSAPIAuthentication no`, `MaxStartups 30:50:200`
 6. **mtproto CPUQuota** — снят (55% → без лимита)
 7. **tcp_max_syn_backlog** — 4096
-8. **metrics** — systemd override на `.venv/bin/python` для `cock-mtproxy-monitor` / `cock-mtproxy-daily`
+8. **metrics** — systemd override на `.venv/bin/python` для `cock-monitor-mtproxy` / `cock-mtproxy-daily`
 
 ```bash
 sudo bash install/mtproto/stabilize-vps.sh

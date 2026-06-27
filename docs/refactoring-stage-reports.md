@@ -207,3 +207,19 @@
 - Регресс: `tests/test_roles.py` smoke ok.
 - Критерии готовности: выполнены.
 - Готовность к фазе 13: да.
+
+## Отчёт по фазе 13
+
+- Цель фазы: безжалостная legacy cleanup — один канонический путь для каждой операции.
+- Структурные изменения:
+  - удалены shim-пакеты `mtproxy_module/`, `telegram_bot/`; код в `cock_monitor/modules/mtproxy/`, `cock_monitor/platform/telegram/`;
+  - удалены v1 systemd units из repo (`cock-monitor.service`, `cock-shaper.*`, `cock-mtproxy-monitor.*`, `cock-monitor-telegram-bot.*`, `cock-monitor-vless.*`, `cock-monitor-incident-sampler.*`);
+  - удалены `configure_cli.py`, `install-ubuntu-minimal.sh`, `lib/incident-metrics.sh`, `bin/incident-sampler.sh`;
+  - `burst-capture` и `telegram` subcommands в `__main__.py`; JSONL tag `"sampler": "incident"`;
+  - docs sync: README, DEPLOY, install/*, stage-0 banner, tasks-vpn-quality, stabilize-vps → v2 units.
+- Зачем: нет дублирующих entrypoints и legacy env; проще деплой и сопровождение.
+- Изменённые файлы: см. git diff (cock_monitor/*, systemd/, install/, docs/, tests/, pyproject.toml).
+- Breaking changes: да — v1 units/shims/configure wizard удалены; redeploy через `install/install.sh`.
+- Регресс: `burst-capture --help`, grep без shim-импортов, legacy keys только в `LEGACY_UNITS`/migration doc.
+- Критерии готовности: выполнены.
+- План фаз 7–13: завершён.

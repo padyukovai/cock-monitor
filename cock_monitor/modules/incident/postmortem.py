@@ -220,7 +220,7 @@ def build_json_line(
         "ts": ts_iso,
         "ts_epoch": ts_epoch,
         "host": host,
-        "sampler": "incident-sampler",
+        "sampler": "incident",
         "version": "1",
         "level": level,
         "ping": ping,

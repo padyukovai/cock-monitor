@@ -65,11 +65,20 @@ def main(argv: list[str] | None = None) -> int:
         from cock_monitor.preflight import main as preflight_main
 
         return preflight_main(a[1:] if len(a) > 1 else [])
+    if a[:1] == ["burst-capture"]:
+        from cock_monitor.burst_capture_cli import run as burst_capture_run
+
+        return burst_capture_run(a[1:])
+    if a[:1] == ["telegram"]:
+        from cock_monitor.platform.telegram.__main__ import main as telegram_main
+
+        return telegram_main()
     if a[:1] in (["help"], ["-h"], ["--help"]):
         print(
-            "Usage: python -m cock_monitor {run|modules|install|uninstall|preflight|config-check} ...\n"
+            "Usage: python -m cock_monitor {run|modules|install|uninstall|preflight|config-check|burst-capture|telegram} ...\n"
             "  run <module> [env_file] [--dry-run]\n"
-            "  install --profile stack-3xui [--wipe-data] [--token ...] [--chat-id ...]"
+            "  install --profile stack-3xui [--role exit-node] [--wipe-data]\n"
+            "  burst-capture --env-file /etc/cock-monitor.env start --duration 60"
         )
         return 0
 

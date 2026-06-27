@@ -278,10 +278,10 @@ RF3 требует `setup-hop-probe.sh`, RF2 — `patch-xray-hop-http-proxy.sh`,
 
 ### Критерии готовности
 
-- [ ] `rg` по legacy-ключам в `*.py`/`*.sh`/`config*` — пусто (кроме `LEGACY_UNITS`, uninstall, migration doc «removed»).
-- [ ] Нет рабочих импортов из `mtproxy_module` / `telegram_bot`.
-- [ ] `python -m cock_monitor burst-capture --help` работает (или модуль в registry).
-- [ ] README/DEPLOY/install — только v2 timers и `ENABLED_MODULES`.
+- [x] `rg` по legacy-ключам в `*.py`/`*.sh`/`config*` — пусто (кроме `LEGACY_UNITS`, uninstall, migration doc «removed»).
+- [x] Нет рабочих импортов из `mtproxy_module` / `telegram_bot`.
+- [x] `python -m cock_monitor burst-capture --help` работает (или модуль в registry).
+- [x] README/DEPLOY/install — только v2 timers и `ENABLED_MODULES`.
 - [ ] `pytest`, `ruff` OK.
 
 ### Оценка объёма

@@ -58,7 +58,7 @@ def _load_samples(log_dir: str, start_ts: int, end_ts: int, host: str | None) ->
                         row = json.loads(line)
                     except json.JSONDecodeError:
                         continue
-                    if row.get("sampler") != "incident-sampler":
+                    if row.get("sampler") not in ("incident", "incident-sampler"):
                         continue
                     if host and row.get("host") != host:
                         continue

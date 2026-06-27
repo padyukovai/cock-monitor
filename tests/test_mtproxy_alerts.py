@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 
 import pytest
-from mtproxy_module.repository import can_send_alert, init_schema, record_alert
+from cock_monitor.modules.mtproxy.repository import can_send_alert, init_schema, record_alert
 
 
 @pytest.fixture
@@ -20,7 +20,7 @@ def test_can_send_alert_first_time(memory_conn: sqlite3.Connection) -> None:
 
 
 def test_cooldown_blocks_repeat_within_window(memory_conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
-    import mtproxy_module.repository as repo
+    import cock_monitor.modules.mtproxy.repository as repo
 
     t0 = 1_700_000_000
     monkeypatch.setattr(repo.time, "time", lambda: float(t0))
@@ -31,7 +31,7 @@ def test_cooldown_blocks_repeat_within_window(memory_conn: sqlite3.Connection, m
 
 
 def test_cooldown_allows_after_window(memory_conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
-    import mtproxy_module.repository as repo
+    import cock_monitor.modules.mtproxy.repository as repo
 
     t0 = 1_700_000_000
     monkeypatch.setattr(repo.time, "time", lambda: float(t0))

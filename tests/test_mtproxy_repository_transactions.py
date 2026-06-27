@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from mtproxy_module.repository import (
+from cock_monitor.modules.mtproxy.repository import (
     MTPROXY_SCHEMA_VERSION,
     collect_traffic,
     init_schema,
@@ -48,7 +48,7 @@ def _user_version(conn: sqlite3.Connection) -> int:
 
 
 def test_atomic_collect_store_alert_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    import mtproxy_module.repository as repo
+    import cock_monitor.modules.mtproxy.repository as repo
 
     conn = sqlite3.connect(":memory:")
     init_schema(conn)
@@ -75,7 +75,7 @@ def test_atomic_collect_store_alert_happy_path(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_atomic_collect_store_rolls_back_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    import mtproxy_module.repository as repo
+    import cock_monitor.modules.mtproxy.repository as repo
 
     conn = sqlite3.connect(":memory:")
     init_schema(conn)

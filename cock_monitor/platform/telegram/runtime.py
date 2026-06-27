@@ -1,4 +1,4 @@
-"""Shared helpers for telegram_bot (timeouts, etc.)."""
+"""Shared helpers for platform.telegram (timeouts, etc.)."""
 from __future__ import annotations
 
 from collections.abc import Callable

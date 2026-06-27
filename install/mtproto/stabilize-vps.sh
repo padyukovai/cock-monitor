@@ -25,7 +25,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 echo "=== Step 9 prep: diagnose metrics collector ==="
-journalctl -u cock-mtproxy-monitor.service -n 15 --no-pager 2>/dev/null || true
+journalctl -u cock-monitor-mtproxy.service -n 15 --no-pager 2>/dev/null || true
 
 echo
 echo "=== Step 1: iptables connlimit on :8443 (limit=${CONNLIMIT}, 0=disabled) ==="
@@ -139,11 +139,11 @@ VENV_PYTHON="${COCK_MONITOR_HOME}/.venv/bin/python"
 if [[ ! -x "$VENV_PYTHON" ]]; then
   echo "WARNING: $VENV_PYTHON not found; metrics override skipped" >&2
 else
-  for svc in cock-mtproxy-monitor cock-mtproxy-daily; do
+  for svc in cock-monitor-mtproxy cock-mtproxy-daily; do
     dropin="/etc/systemd/system/${svc}.service.d"
     mkdir -p "$dropin"
-    if [[ "$svc" == "cock-mtproxy-monitor" ]]; then
-      exec_line="${VENV_PYTHON} -m cock_monitor mtproxy-collect --env-file /etc/cock-monitor.env"
+    if [[ "$svc" == "cock-monitor-mtproxy" ]]; then
+      exec_line="${VENV_PYTHON} -m cock_monitor run mtproxy /etc/cock-monitor.env"
     else
       exec_line="${VENV_PYTHON} -m cock_monitor mtproxy-daily --env-file /etc/cock-monitor.env --hours 24 --send-telegram"
     fi
@@ -174,8 +174,8 @@ if ! systemctl is-active --quiet mtproto.service; then
 fi
 
 if [[ -x "$VENV_PYTHON" ]]; then
-  systemctl restart cock-mtproxy-monitor.timer 2>/dev/null || true
-  systemctl start cock-mtproxy-monitor.service 2>/dev/null || true
+  systemctl restart cock-monitor-mtproxy.timer 2>/dev/null || true
+  systemctl start cock-monitor-mtproxy.service 2>/dev/null || true
 fi
 
 echo

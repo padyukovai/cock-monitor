@@ -1,7 +1,7 @@
 # Деплой на сервер (актуальный runbook)
 
 Короткая и рабочая инструкция для обновления уже установленного сервиса.
-Для первичной установки на чистую Ubuntu используйте one-shot инсталлятор из `README.md`: `sudo bash install/install-ubuntu-minimal.sh`.
+Для первичной установки на чистую Ubuntu: `sudo bash install/install.sh --profile <name>`.
 
 ## Значения по умолчанию
 
@@ -60,7 +60,7 @@ ssh "$DEPLOY_HOST" "cd $APP_DIR && git show --name-only --oneline --pretty=mediu
 
 ### Быстрые правила
 
-- Если изменились только файлы в `cock_monitor/`, `telegram_bot/`, `bin/`, `lib/` — чаще всего ничего не нужно.
+- Если изменились только файлы в `cock_monitor/`, `bin/`, `lib/` — чаще всего достаточно `git pull`.
 - Если изменились файлы в `systemd/` — нужно переустановить unit-файлы и сделать `daemon-reload`.
 - Если изменились `config.example.env` или `config.minimal.env` — нужно сверить и при необходимости дописать новые переменные в `/etc/cock-monitor.env`.
 
@@ -79,24 +79,14 @@ ssh "$DEPLOY_HOST" "cd $APP_DIR && git diff --name-only ORIG_HEAD..HEAD"
 ## Применение systemd-изменений (только если менялся `systemd/`)
 
 ```bash
-ssh "$DEPLOY_HOST" "install -m644 \
-  $APP_DIR/systemd/cock-monitor.service \
-  $APP_DIR/systemd/cock-monitor.timer \
-  $APP_DIR/systemd/cock-monitor-telegram-bot.service \
-  $APP_DIR/systemd/cock-monitor-telegram-bot.timer \
-  $APP_DIR/systemd/cock-monitor-daily.service \
-  $APP_DIR/systemd/cock-monitor-daily.timer \
-  $APP_DIR/systemd/cock-mtproxy-monitor.service \
-  $APP_DIR/systemd/cock-mtproxy-monitor.timer \
-  $APP_DIR/systemd/cock-mtproxy-daily.service \
-  $APP_DIR/systemd/cock-mtproxy-daily.timer \
-  $APP_DIR/systemd/cock-shaper.service \
-  $APP_DIR/systemd/cock-shaper.timer \
-  $APP_DIR/systemd/cock-monitor-incident.service \
-  $APP_DIR/systemd/cock-monitor-incident.timer \
-  $APP_DIR/systemd/cock-vless-daily.service \
-  $APP_DIR/systemd/cock-vless-daily.timer \
-  /etc/systemd/system/ && systemctl daemon-reload"
+ssh "$DEPLOY_HOST" "cd $APP_DIR && sudo bash install/install.sh --profile stack-exit-node --token \"\$TELEGRAM_BOT_TOKEN\" --chat-id \"\$TELEGRAM_CHAT_ID\""
+```
+
+Или переустановить только systemd-шаблоны v2 вручную:
+
+```bash
+ssh "$DEPLOY_HOST" "cd $APP_DIR && sudo cp systemd/cock-monitor-*.service systemd/cock-monitor-*.timer \
+  systemd/cock-*-daily.* /etc/systemd/system/ 2>/dev/null; sudo systemctl daemon-reload"
 ```
 
 ## Проверка Python runtime перед smoke и запуском unit'ов
@@ -131,7 +121,7 @@ echo "Using interpreter: $PYTHON_BIN"
 ```bash
 ssh "$DEPLOY_HOST" "cd $APP_DIR && $PYTHON_BIN -m cock_monitor preflight $ENV_FILE"
 ssh "$DEPLOY_HOST" "cd $APP_DIR && $PYTHON_BIN -m cock_monitor conntrack-check --dry-run $ENV_FILE"
-ssh "$DEPLOY_HOST" "cd $APP_DIR && COCK_MONITOR_HOME=$APP_DIR $PYTHON_BIN -m telegram_bot --poll-once $ENV_FILE"
+ssh "$DEPLOY_HOST" "cd $APP_DIR && COCK_MONITOR_HOME=$APP_DIR $PYTHON_BIN -m cock_monitor.platform.telegram --poll-once $ENV_FILE"
 ```
 
 Проверка таймеров:

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from cock_monitor.adapters import hop_links as hop
 from cock_monitor.modules.incident import level, postmortem, probes
-from telegram_bot.telegram_client import DeliveryResult
+from cock_monitor.platform.telegram.telegram_client import DeliveryResult
 
 
 def test_parse_ping_output_linux_style() -> None:

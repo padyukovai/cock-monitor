@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import Protocol
 
 from cock_monitor.mtproxy_collect_cli import dispatch_mtproxy_alerts, run
-from mtproxy_module.alerts import AlertCandidate
-from mtproxy_module.repository import can_send_alert, init_schema
-from telegram_bot.telegram_client import DeliveryResult
+from cock_monitor.modules.mtproxy.alerts import AlertCandidate
+from cock_monitor.modules.mtproxy.repository import can_send_alert, init_schema
+from cock_monitor.platform.telegram.telegram_client import DeliveryResult
 
 
 class _ClientLike(Protocol):

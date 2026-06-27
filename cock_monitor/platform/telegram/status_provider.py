@@ -1,4 +1,4 @@
-"""Compatibility shim for status provider."""
+"""Status text provider for Telegram /status."""
 
 from __future__ import annotations
 
@@ -36,15 +36,3 @@ def truncate_for_telegram(text: str, limit: int = 4096) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 3] + "..."
-
-
-# Legacy alias for tests that monkeypatch build_status_report
-build_status_report = build_core_status
-
-__all__ = [
-    "StatusProvider",
-    "PythonStatusProvider",
-    "truncate_for_telegram",
-    "run_with_timeout",
-    "build_status_report",
-]
