@@ -21,6 +21,7 @@ def _cfg(tmp_path: Path, *, max_updates: int, max_seconds: int) -> BotConfig:
         offset_file=tmp_path / "offset",
         monitor_home=tmp_path,
         mtproxy=MtproxyConfig.from_env_map({}),
+        shaper_enabled=False,
         max_updates_per_run=max_updates,
         max_seconds_per_run=max_seconds,
         proxy_url=None,
@@ -112,3 +113,4 @@ def test_poll_once_sets_menu_commands_with_mtproxy_disabled(
     assert ("status", "Full host + conntrack status") in captured[0]
     assert ("help", "Show enabled module commands") in captured[0]
     assert not any(name.startswith("mt_") for name, _ in captured[0])
+    assert not any(name == "cake_bw" for name, _ in captured[0])

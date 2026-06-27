@@ -27,6 +27,7 @@ class BotConfig:
     offset_file: Path
     monitor_home: Path
     mtproxy: MtproxyConfig
+    shaper_enabled: bool
     max_updates_per_run: int
     max_seconds_per_run: int
     proxy_url: str | None
@@ -55,6 +56,7 @@ class BotConfig:
             offset_file=Path(offset).expanduser(),
             monitor_home=Path(home).expanduser().resolve(),
             mtproxy=MtproxyConfig.from_env_map(raw),
+            shaper_enabled=loaded.app.shaper.enabled,
             max_updates_per_run=max(1, max_updates),
             max_seconds_per_run=max(1, max_seconds),
             proxy_url=proxy,
