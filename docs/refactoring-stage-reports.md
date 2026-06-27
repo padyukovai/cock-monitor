@@ -162,3 +162,17 @@
 
 - Без deprecated fallback и обратной совместимости в коде.
 - Фаза 13 — полная чистка shim/units/bin (см. [`architecture-improvement-plan.md`](architecture-improvement-plan.md)).
+
+## Отчёт по фазе 10
+
+- Цель фазы: incident как полноценный модуль в `modules/incident/`.
+- Структурные изменения:
+  - перенос логики из `services/incident_sampler.py` в `modules/incident/{env,probes,level,postmortem,sampler,service}.py`;
+  - `run_cli` → `modules.incident.service.run_incident_tick`;
+  - удалены `services/incident_sampler.py`, `bin/incident-sampler.sh`, `systemd/cock-monitor-incident-sampler.*`.
+- Зачем: симметрия с hop/mtproxy/vless; один entrypoint `run incident`.
+- Изменённые файлы: `cock_monitor/modules/incident/*` (new split), `run_cli.py`, `services/burst_capture.py`, удалённые legacy paths, `tests/test_incident_sampler.py`, `tests/test_incident_hop_dedup.py`, `tests/test_module_enable.py`, `docs/stage-5-unified-boundaries.md`, `docs/stage-0-inventory-and-contracts.md`, `config.example.env`.
+- Breaking changes: да — `python -m cock_monitor.services.incident_sampler` и `bin/incident-sampler.sh` удалены.
+- Регресс: smoke import/run_once ok; pytest — на CI.
+- Критерии готовности: выполнены.
+- Готовность к фазе 11: да.

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from cock_monitor.adapters import hop_links as hl
-from cock_monitor.services import incident_sampler as ismp
+from cock_monitor.modules.incident import level, probes, sampler
 
 
 def test_resolve_hop_links_raw_reads_hop_links_only() -> None:
@@ -24,16 +24,16 @@ def test_resolve_hop_links_raw_ignores_removed_incident_key() -> None:
 
 
 def test_incident_hop_level_enabled_without_hop_module() -> None:
-    assert ismp.incident_hop_level_enabled({"ENABLED_MODULES": "core,incident"}) is True
+    assert level.incident_hop_level_enabled({"ENABLED_MODULES": "core,incident"}) is True
 
 
 def test_incident_hop_level_disabled_with_hop_module() -> None:
-    assert ismp.incident_hop_level_enabled({"ENABLED_MODULES": "core,hop,incident"}) is False
+    assert level.incident_hop_level_enabled({"ENABLED_MODULES": "core,hop,incident"}) is False
 
 
 def test_compute_level_ignores_hop_when_links_none() -> None:
     assert (
-        ismp.compute_level(
+        level.compute_level(
             fill_pct=0,
             conn_warn=85,
             conn_crit=95,
@@ -59,22 +59,22 @@ def test_run_once_writes_hop_links_but_ok_level_with_hop_module(
     monkeypatch.setenv("ENABLED_MODULES", "core,hop,incident")
     monkeypatch.setenv("INCIDENT_LOG_DIR", str(tmp_path))
     monkeypatch.setenv("INCIDENT_STATE_FILE", str(tmp_path / "state"))
-    monkeypatch.setattr(ismp, "apply_incident_defaults", lambda: None)
+    monkeypatch.setattr(sampler, "apply_incident_defaults", lambda: None)
 
     hop_data = {
         "enabled": 1,
         "links": [{"name": "germany", "estab": 99, "fin_wait": 0, "error": ""}],
     }
 
-    monkeypatch.setattr(ismp, "collect_hop_links", lambda: hop_data)
-    monkeypatch.setattr(ismp, "collect_ping_legacy", lambda *_a, **_k: ([], 0))
-    monkeypatch.setattr(ismp, "collect_ping_groups", lambda: [])
-    monkeypatch.setattr(ismp, "collect_dns", lambda *_a, **_k: (1, 10, ""))
-    monkeypatch.setattr(ismp, "collect_conntrack", lambda: (0, 0, 0))
-    monkeypatch.setattr(ismp, "collect_tcp_states", lambda: {
+    monkeypatch.setattr(probes, "collect_hop_links", lambda: hop_data)
+    monkeypatch.setattr(probes, "collect_ping_legacy", lambda *_a, **_k: ([], 0))
+    monkeypatch.setattr(probes, "collect_ping_groups", lambda: [])
+    monkeypatch.setattr(probes, "collect_dns", lambda *_a, **_k: (1, 10, ""))
+    monkeypatch.setattr(probes, "collect_conntrack", lambda: (0, 0, 0))
+    monkeypatch.setattr(probes, "collect_tcp_states", lambda: {
         "estab": 0, "syn_recv": 0, "time_wait": 0, "fin_wait": 0, "close_wait": 0, "orphan": 0,
     })
-    monkeypatch.setattr(ismp, "collect_tcp_probes", lambda: {
+    monkeypatch.setattr(probes, "collect_tcp_probes", lambda: {
         "enabled": 0,
         "totals": {
             "all": {"total": 0, "fails": 0},
@@ -83,14 +83,20 @@ def test_run_once_writes_hop_links_but_ok_level_with_hop_module(
         },
         "targets": {"local": "", "external": ""},
     })
-    monkeypatch.setattr(ismp, "read_load_mem_from_proc", lambda: (0.1, 100000))
-    monkeypatch.setattr(ismp, "collect_units", lambda: {})
-    monkeypatch.setattr(ismp, "state_load", lambda _p: {})
-    monkeypatch.setattr(ismp, "state_save", lambda *_a, **_k: None)
-    monkeypatch.setattr(ismp, "maybe_alert", lambda *_a, **_k: None)
-    monkeypatch.setattr(ismp, "incident_track_and_postmortem", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "cock_monitor.adapters.linux_host.read_load_mem_from_proc",
+        lambda: (0.1, 100000),
+    )
+    monkeypatch.setattr(probes, "collect_units", lambda: {})
+    monkeypatch.setattr("cock_monitor.modules.incident.postmortem.state_load", lambda _p: {})
+    monkeypatch.setattr("cock_monitor.modules.incident.postmortem.state_save", lambda *_a, **_k: None)
+    monkeypatch.setattr("cock_monitor.modules.incident.postmortem.maybe_alert", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "cock_monitor.modules.incident.postmortem.incident_track_and_postmortem",
+        lambda *_a, **_k: None,
+    )
 
-    assert ismp.run_once() == 0
+    assert sampler.run_once() == 0
     row = json.loads(list(tmp_path.glob("incident-*.jsonl"))[0].read_text(encoding="utf-8").strip())
     assert row["hop_links"]["enabled"] == 1
     assert row["level"] == "OK"

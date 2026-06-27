@@ -170,8 +170,8 @@
 
 ### Критерии готовности
 
-- [ ] `python -m cock_monitor run incident` вызывает код из `modules/incident/`.
-- [ ] Нет `bin/incident-sampler.sh`, `cock-monitor-incident-sampler.*` в repo.
+- [x] `python -m cock_monitor run incident` вызывает код из `modules/incident/`.
+- [x] Нет `bin/incident-sampler.sh`, `cock-monitor-incident-sampler.*` в repo.
 - [ ] Нет циклических импортов; `domain`/`adapters` не тянут telegram напрямую из sampler.
 - [ ] Существующие тесты incident проходят (пути обновлены).
 - [ ] `pytest`, `ruff` OK.

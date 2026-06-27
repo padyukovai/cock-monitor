@@ -1,9 +1,12 @@
-"""Pure helpers from cock_monitor.services.incident_sampler."""
+"""Pure helpers from cock_monitor.modules.incident."""
+
 from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 from cock_monitor.adapters import hop_links as hop
-from cock_monitor.services import incident_sampler as ismp
+from cock_monitor.modules.incident import level, postmortem, probes
 from telegram_bot.telegram_client import DeliveryResult
 
 
@@ -16,14 +19,14 @@ PING 1.1.1.1 (1.1.1.1) 56(84) bytes of data.
 2 packets transmitted, 2 received, 0% packet loss, time 1002ms
 rtt min/avg/max/mdev = 10.100/10.200/10.300/0.050 ms
 """
-    tx, rx, loss, avg = ismp.parse_ping_output(text)
+    tx, rx, loss, avg = probes.parse_ping_output(text)
     assert tx == 2 and rx == 2 and loss == 0
     assert abs(avg - 10.2) < 0.01
 
 
 def test_compute_level_conntrack_crit() -> None:
     assert (
-        ismp.compute_level(
+        level.compute_level(
             fill_pct=96,
             conn_warn=85,
             conn_crit=95,
@@ -67,7 +70,7 @@ def test_parse_hop_links_env() -> None:
 
 def test_compute_level_hop_fin_wait_warn() -> None:
     assert (
-        ismp.compute_level(
+        level.compute_level(
             fill_pct=0,
             conn_warn=85,
             conn_crit=95,
@@ -91,7 +94,7 @@ def test_compute_level_hop_fin_wait_warn() -> None:
 
 def test_compute_level_hop_estab_crit() -> None:
     assert (
-        ismp.compute_level(
+        level.compute_level(
             fill_pct=0,
             conn_warn=85,
             conn_crit=95,
@@ -115,7 +118,7 @@ def test_compute_level_hop_estab_crit() -> None:
 
 def test_compute_level_hop_error_warn() -> None:
     assert (
-        ismp.compute_level(
+        level.compute_level(
             fill_pct=0,
             conn_warn=85,
             conn_crit=95,
@@ -139,7 +142,7 @@ def test_compute_level_hop_error_warn() -> None:
 
 def test_compute_level_hop_error_does_not_mask_crit() -> None:
     assert (
-        ismp.compute_level(
+        level.compute_level(
             fill_pct=0,
             conn_warn=85,
             conn_crit=95,
@@ -163,7 +166,7 @@ def test_compute_level_hop_error_does_not_mask_crit() -> None:
 
 def test_compute_level_tcp_fin_wait_warn() -> None:
     assert (
-        ismp.compute_level(
+        level.compute_level(
             fill_pct=0,
             conn_warn=85,
             conn_crit=95,
@@ -193,20 +196,20 @@ def test_maybe_alert_sets_cooldown_only_on_success(monkeypatch: pytest.MonkeyPat
     monkeypatch.setenv("INCIDENT_ALERT_ENABLE", "1")
     monkeypatch.setenv("INCIDENT_ALERT_COOLDOWN_SEC", "10")
     monkeypatch.setattr(
-        ismp,
+        postmortem,
         "send_telegram",
         lambda _text, parse_mode=None: DeliveryResult(success=False, reason="HTTP 500", attempts=3),
     )
 
-    ismp.maybe_alert(120, "WARN", st, snapshot_text="snapshot")
+    postmortem.maybe_alert(120, "WARN", st, snapshot_text="snapshot")
     assert st["last_alert_ts"] == "100"
 
     monkeypatch.setattr(
-        ismp,
+        postmortem,
         "send_telegram",
         lambda _text, parse_mode=None: DeliveryResult(success=True, reason="", attempts=1),
     )
-    ismp.maybe_alert(130, "WARN", st, snapshot_text="snapshot")
+    postmortem.maybe_alert(130, "WARN", st, snapshot_text="snapshot")
     assert st["last_alert_ts"] == "130"
 
 
@@ -220,13 +223,13 @@ def test_maybe_alert_requires_consecutive_warn_threshold(monkeypatch: pytest.Mon
         sent["count"] += 1
         return DeliveryResult(success=True, reason="", attempts=1)
 
-    monkeypatch.setattr(ismp, "send_telegram", _send)
+    monkeypatch.setattr(postmortem, "send_telegram", _send)
 
-    ismp.maybe_alert(100, "WARN", st, snapshot_text="snapshot")
+    postmortem.maybe_alert(100, "WARN", st, snapshot_text="snapshot")
     assert sent["count"] == 0
 
     st["non_ok_streak"] = "2"
-    ismp.maybe_alert(110, "WARN", st, snapshot_text="snapshot")
+    postmortem.maybe_alert(110, "WARN", st, snapshot_text="snapshot")
     assert sent["count"] == 1
 
 
@@ -239,7 +242,7 @@ def test_incident_track_requires_two_consecutive_warn_for_postmortem(monkeypatch
         sent["count"] += 1
         return DeliveryResult(success=True, reason="", attempts=1)
 
-    monkeypatch.setattr(ismp, "send_telegram", _send)
+    monkeypatch.setattr(postmortem, "send_telegram", _send)
     st = {
         "last_level": "OK",
         "last_alert_ts": "0",
@@ -252,10 +255,10 @@ def test_incident_track_requires_two_consecutive_warn_for_postmortem(monkeypatch
         "non_ok_peak_level": "OK",
     }
 
-    ismp.incident_track_and_postmortem("OK", "WARN", 100, "host", st, ismp.Path("/tmp"))
+    postmortem.incident_track_and_postmortem("OK", "WARN", 100, "host", st, Path("/tmp"))
     assert st["incident_active"] == "0"
     assert st["non_ok_streak"] == "1"
 
-    ismp.incident_track_and_postmortem("WARN", "OK", 110, "host", st, ismp.Path("/tmp"))
+    postmortem.incident_track_and_postmortem("WARN", "OK", 110, "host", st, Path("/tmp"))
     assert st["incident_active"] == "0"
     assert sent["count"] == 0

@@ -29,9 +29,9 @@ def _run_vless(env_file: Path) -> int:
 
 
 def _run_incident(env_file: Path) -> int:
-    from cock_monitor.services.incident_sampler import main as incident_main
+    from cock_monitor.modules.incident.service import run_incident_tick
 
-    return incident_main([str(env_file)])
+    return run_incident_tick(env_file)
 
 
 def _run_shaper(env_file: Path, *, dry_run: bool) -> int:

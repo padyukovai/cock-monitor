@@ -9,7 +9,7 @@ import pytest
 
 from cock_monitor.modules.mtproxy.config import MtproxyConfig
 from cock_monitor.platform.registry import module_enabled
-from cock_monitor.services import incident_sampler as ismp
+from cock_monitor.modules.incident import sampler
 
 
 @pytest.mark.parametrize(
@@ -32,15 +32,15 @@ def test_mtproxy_config_enabled_from_enabled_modules() -> None:
 
 def test_incident_run_once_skips_when_module_disabled(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ENABLED_MODULES", "core")
-    monkeypatch.setattr(ismp, "apply_incident_defaults", lambda: None)
+    monkeypatch.setattr(sampler, "apply_incident_defaults", lambda: None)
     called = {"collect": 0}
 
     def fake_collect(*_a, **_k):
         called["collect"] += 1
         return [], 0
 
-    monkeypatch.setattr(ismp, "collect_ping_legacy", fake_collect)
-    assert ismp.run_once() == 0
+    monkeypatch.setattr("cock_monitor.modules.incident.probes.collect_ping_legacy", fake_collect)
+    assert sampler.run_once() == 0
     assert called["collect"] == 0
 
 

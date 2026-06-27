@@ -21,7 +21,7 @@ from cock_monitor.adapters.linux_host import (
     read_process_stats,
     read_sockstat_tcp,
 )
-from cock_monitor.services.incident_sampler import apply_incident_defaults, load_env_overwrite
+from cock_monitor.modules.incident.env import apply_incident_defaults, load_env_overwrite
 
 
 def apply_burst_defaults() -> None:

@@ -17,15 +17,20 @@ Flow: CLI/handler -> use-case -> adapters/storage -> Telegram(optional).
 
 ### Incident sampler
 
-- owner scenario: `cock_monitor/services/incident_sampler.py`
+- owner module: `cock_monitor/modules/incident/`
+  - `sampler.py` — tick orchestration (`run_once`)
+  - `probes.py` — ping, DNS, TCP probe, conntrack, hop links, systemd
+  - `level.py` — severity from probe readings
+  - `postmortem.py` — state, Telegram alerts, JSONL line format
+  - `service.py` — entry for `python -m cock_monitor run incident`
 - shared host helpers:
   - `cock_monitor/adapters/linux_host.py`:
     - `read_hostname_fqdn()`
     - `read_sysctl_int()`
     - `read_conntrack_fill()`
-    - существующие `read_load_mem_from_proc()`, `parse_ss_tan_state_counts()`
+    - `read_load_mem_from_proc()`, `parse_ss_state_line_counts()`
 
-Flow: sampler -> linux_host helpers + probes -> JSONL/state -> Telegram(optional).
+Flow: `run incident` -> service -> sampler -> probes/level -> JSONL/state -> Telegram(optional).
 
 ### Shaper
 
@@ -53,7 +58,7 @@ Flow: sampler -> linux_host helpers + probes -> JSONL/state -> Telegram(optional
   - `cock_monitor/adapters/vless_access_log.py` (new)
   - `cock_monitor/adapters/vless_report_formatter.py` (new)
   - `cock_monitor/adapters/linux_host.py`
-  - `cock_monitor/services/incident_sampler.py`
+  - `cock_monitor/modules/incident/` (sampler, probes, level, postmortem)
   - `docs/stage-5-unified-boundaries.md` (new)
 - Breaking changes: нет.
 - Миграции данных: нет.
