@@ -2,6 +2,8 @@
 
 Документ для передачи другому агенту. Задачи упорядочены по **приоритету** (сначала максимальный эффект при разумном объёме работ).
 
+> **v2 (после фаз 7–13):** продуктовый core — Python, не bash. Периодический tick: `python -m cock_monitor run core` (`systemd/cock-monitor-core.timer`). Статус `/status` и `cock-status.sh` → `cock_monitor/services/status_report.py`. Запись в `METRICS_DB` (`conntrack_samples` + `host_samples`) — `cock_monitor/services/conntrack_check.py`. Шейпер: `run shaper` → `bin/cock-cpu-shaper.sh`. Incident JSONL: `run incident`. Ручной burst: `python -m cock_monitor burst-capture`.
+
 ---
 
 ## Контекст (зафиксировать при реализации)
@@ -27,142 +29,159 @@
 
 | Компонент | Файлы | Заметки |
 |-----------|--------|---------|
-| Периодический опрос + Telegram | `bin/check-conntrack.sh` | fill `nf_conntrack`, опционально `conntrack -S`, SQLite `METRICS_DB`, алерты, дельты (`ALERT_ON_STATS_DELTA`, `STATS_RATE_*`) |
-| Общие метрики / текст статуса | `lib/conntrack-metrics.sh` (`apply_defaults`, `format_full_status_text`) | Уже выводятся fill, `conntrack -S`, настройки алертов, блок **VPN CPU Shaper** из `SHAPER_STATUS_FILE` (по умолчанию `cpu_shaper.status`) |
-| Ручной / Telegram статус | `bin/cock-status.sh` | Вызывает `format_full_status_text` |
-| CPU-aware шейпер | `bin/cock-cpu-shaper.sh`, `systemd/cock-shaper.*` | CAKE/HTB, пишет status-файл |
-| Пример env | `config.example.env` | `SHAPER_*`, `LA_*`, `METRICS_*`, conntrack |
-| Деплой | `DEPLOY.md`, `README.md` | Таймеры, пути `/opt/cock-monitor`, `/etc/cock-monitor.env` |
+| Периодический core tick + Telegram | `cock_monitor/services/conntrack_check.py`, `modules/core/service.py` | fill `nf_conntrack`, опционально `conntrack -S`, SQLite `METRICS_DB`, алерты, дельты (`ALERT_ON_STATS_DELTA`, `STATS_RATE_*`) |
+| systemd | `systemd/cock-monitor-core.*` | `ExecStart=python -m cock_monitor run core` |
+| Текст статуса `/status` | `cock_monitor/services/status_report.py`, `modules/core/status.py` | Host snapshot: mem, load, sockstat, WAN `ip -s link`, `STATUS_EXTRA_UNITS`, conntrack, shaper block |
+| Ручной статус | `bin/cock-status.sh` | Thin wrapper → `build_core_status()` (Python) |
+| Legacy wrapper tick | `bin/check-conntrack.sh` | Thin wrapper → `run core` |
+| `host_samples` в METRICS_DB | `storage/conntrack_host_repository.py`, `storage/migrations_conntrack_host.py` | load1, mem, swap, TCP sockstat, shaper rate/cpu, tc qdisc — пишет `conntrack_check` |
+| Контекст в STATS-алертах | `conntrack_check._format_stats_host_context()` | load/mem/swap, sockstat TCP, shaper block при delta/cumulative alerts |
+| CPU-aware шейпер | `bin/cock-cpu-shaper.sh`, `systemd/cock-monitor-shaper.*` | CAKE; gate через `ENABLED_MODULES=...,shaper` |
+| Incident JSONL (10s) | `modules/incident/`, `systemd/cock-monitor-incident.*` | ping, DNS, conntrack, TCP probe, hop links |
+| Burst capture (1 Hz, on-demand) | `services/burst_capture.py`, `burst-capture` CLI | JSONL при reconnect-storm; см. `docs/burst-diagnosis-london.md` |
+| Shell lib (legacy ops) | `lib/conntrack-metrics.sh` | Defaults/helpers; **не** primary path для `/status` и METRICS_DB |
+| Пример env | `config.example.env` | `STATUS_*`, `SHAPER_*`, `METRICS_*`, `STATS_ALERT_SHAPER_MAX_AGE_MIN` |
+| Деплой | `DEPLOY.md`, `README.md`, `install/profiles.md` | v2 timers `cock-monitor-<module>.*`, `ENABLED_MODULES` |
 
 ---
 
-## Задача P1 — Расширить `format_full_status_text` (и тем самым `/status`)
+## Задача P1 — Расширить статус `/status` ✅ выполнено
 
-**Цель:** одним сообщением видеть главные **узкие места хоста**, не только conntrack и shaper.
+**Статус:** реализовано в Python (`build_status_report`).
 
-**Файлы:** `lib/conntrack-metrics.sh` (функция `format_full_status_text`), при необходимости новые маленькие хелперы в том же файле или в `lib/host-snapshot.sh` (если раздувается).
+**Файлы:** `cock_monitor/services/status_report.py` (env: `STATUS_WAN_IFACE`, `STATUS_IP_LINK_HEAD_LINES`, `STATUS_EXTRA_UNITS`, `SHAPER_STATUS_FILE`).
 
-**Добавить (read-only, ограничить строки):**
+**Что есть:**
 
-1. **Память / swap** из `/proc/meminfo`: как минимум `MemAvailable`, `SwapTotal`/`SwapFree` (или уже посчитанный used).
-2. **Load average:** строка из `/proc/loadavg` (или только `load1`).
-3. **Краткий TCP-свод** из `/proc/net/sockstat`: строки `TCP:` (inuse, orphan, tw) и при желании `TCP6:`.
-4. **WAN-интерфейс:** из env что-то вроде `STATUS_WAN_IFACE` с дефолтом `ens3` (или переиспользовать `SHAPER_IFACE` если задан); вывести **первые строки** `ip -s link show dev $iface` (RX/TX **dropped** / errors).
-5. Опционально (через env `STATUS_EXTRA_UNITS`, список через пробел): для каждого unit из списка — `systemctl is-active` + `ActiveEnterTimestamp` (коротко), чтобы видеть недавние рестарты `x-ui` / `mtproto` без парсинга всего journal.
+1. Память / swap из `/proc/meminfo` (`MemAvailable`, swap used/total).
+2. Load average из `/proc/loadavg`.
+3. TCP-свод из `/proc/net/sockstat` (`TCP:`, `TCP6:`).
+4. WAN: `ip -s link show dev $STATUS_WAN_IFACE` (fallback на `SHAPER_IFACE`, default `ens3`).
+5. `STATUS_EXTRA_UNITS` — `systemctl is-active` + `ActiveEnterTimestamp` per unit.
+6. Conntrack fill + `conntrack -S` + блок VPN CPU Shaper.
 
-**Ограничения:** не вызывать `conntrack -L`; не тащить мегабайты вывода; текст должен укладываться в лимиты Telegram (при необходимости сжать до ключевых полей).
+**Проверка:** `bin/cock-status.sh /etc/cock-monitor.env` или `/status` в Telegram (`platform/telegram/dispatch.py` → `build_core_status`).
 
-**Критерий готовности:** `cock-status.sh /path/to.env` (и бот `/status`, если использует тот же формат) показывают новый блок(и); существующие поля не ломаются при отсутствии опциональных данных (нет iface, нет `ss` — graceful).
-
----
-
-## Задача P2 — Расширить записи в `METRICS_DB` (история для постмортема)
-
-**Цель:** по времени жалобы смотреть в SQLite не только conntrack, но и **нагрузку/память/TCP**.
-
-**Файлы:** `bin/check-conntrack.sh` (INSERT в БД), возможно общая функция в `lib/conntrack-metrics.sh` или новый `lib/metrics-schema.sh`.
-
-**Предложение по схеме (минимально инвазивно):**
-
-- Либо **новые колонки** в существующей таблице сэмплов (если миграция проста),
-- либо **вторая таблица** `host_samples(ts, load1, mem_avail_kb, swap_used_kb, tcp_inuse, tcp_orphan, …)` + `CREATE TABLE IF NOT EXISTS` и лёгкая миграция в скрипте при старте.
-
-**Поля (минимум):** `ts`, `load1` (float или текст), `mem_available_kb`, `swap_used_kb`, суммы из `conntrack -S` (уже есть или дополнить), `tcp_inuse`, `tcp_orphan` из `sockstat`, опционально одна строка `tc qdisc` root на `SHAPER_IFACE` или `rate_mbit` из `cpu_shaper.status` если файл существует.
-
-**Retention:** не отключать существующий `METRICS_RETENTION_DAYS`; новые строки должны подпадать под тот же prune.
-
-**Критерий готовности:** после нескольких тиков таймера в БД появляются новые поля/таблица; документировать в `README.md` или `config.example.env` имена колонок и пример запроса `sqlite3` для «что было в интервал времени».
+**Не дублировать:** правки в `lib/conntrack-metrics.sh` для продуктового `/status` — только если нужен чисто shell-ops путь без Python.
 
 ---
 
-## Задача P3 — Обогатить Telegram при `ALERT_ON_STATS_DELTA` (и при желании при cumulative STATS)
+## Задача P2 — Расширить записи в `METRICS_DB` ✅ выполнено
 
-**Цель:** при всплеске `drop`/`insert_failed` сразу видеть **контекст**, а не только счётчики.
+**Статус:** таблица `host_samples` + запись на каждом core tick.
 
-**Файлы:** `bin/check-conntrack.sh` (формирование текста `send_telegram` / сборка строки алерта).
+**Файлы:**
 
-**Добавить в конец алерта (коротко, 3–6 строк):**
+- `cock_monitor/storage/migrations_conntrack_host.py` — DDL `host_samples`
+- `cock_monitor/storage/conntrack_host_repository.py` — INSERT/prune
+- `cock_monitor/services/conntrack_check.py` — `_collect_host_sample()`, пишет вместе с `conntrack_samples` (общий `ts`)
 
-- `load1`, `MemAvailable`, swap used (те же источники, что в P1 — лучше одна общая функция).
-- одна строка TCP из `sockstat`;
-- если есть `SHAPER_STATUS_FILE` и он не старше N минут (из env) — `rate_applied_mbit` + `cpu_pct` из файла; иначе явно «shaper: no data».
+**Поля:** `ts`, `load1`, `mem_avail_kb`, `swap_used_kb`, `tcp_inuse`, `tcp_orphan`, `tcp_tw`, `tcp6_inuse`, `shaper_rate_mbit`, `shaper_cpu_pct`, `tc_qdisc_root`.
 
-**Критерий готовности:** при искусственно заниженном пороге в тестовом `.env` алерт содержит новый блок; длина сообщения разумна; при `DRY_RUN=1` вывод в stdout.
+**Retention:** общий `METRICS_RETENTION_DAYS` / prune в repository.
+
+**Пример запроса:**
+
+```sql
+SELECT datetime(ts, 'unixepoch') AS t, load1, mem_avail_kb, swap_used_kb, tcp_inuse, tcp_orphan
+FROM host_samples
+WHERE ts BETWEEN strftime('%s', '2026-06-27 10:00') AND strftime('%s', '2026-06-27 11:00')
+ORDER BY ts;
+```
 
 ---
 
-## Задача P4 — Предупреждение: критичные systemd-таймеры не активны
+## Задача P3 — Обогатить Telegram при `ALERT_ON_STATS_DELTA` ✅ выполнено
+
+**Статус:** контекстный блок в алертах через `_format_stats_host_context()`.
+
+**Файл:** `cock_monitor/services/conntrack_check.py`
+
+**Что добавляется в алерт (3–4 строки):** `load1`, `MemAvailable`, swap used; строка `sockstat TCP:`; `shaper: <rate> cpu=<pct>%` или `shaper: no data` (свежесть по `STATS_ALERT_SHAPER_MAX_AGE_MIN` и `ts=` в `SHAPER_STATUS_FILE`).
+
+**Проверка:** `python -m cock_monitor run core /path/to.env --dry-run` с заниженными порогами delta в тестовом `.env`.
+
+---
+
+## Задача P4 — Предупреждение: критичные systemd-таймеры не активны ⏳ открыто
 
 **Цель:** не оставаться без данных «по умолчанию», если забыли `enable --now`.
 
-**Файлы:** `lib/conntrack-metrics.sh` (в конце `format_full_status_text`) и/или `bin/check-conntrack.sh` (один раз за run: предупреждение в stderr или отдельный низкий приоритет Telegram с cooldown).
+**Предлагаемые файлы:** `cock_monitor/services/status_report.py` (блок в конце отчёта) и/или `conntrack_check.py` (stderr или редкий Telegram с cooldown).
 
-**Поведение:**
+**Поведение (v2 unit names):**
 
-- Проверять `systemctl is-active cock-monitor.timer` (или имя unit из env).
-- Если `shaper` в `ENABLED_MODULES` — проверить `cock-monitor-shaper.timer`.
-- Вывод: строка в статусе «WARN: cock-monitor.timer inactive» и т.д.
+- Проверять `systemctl is-active cock-monitor-core.timer`.
+- Если `shaper` ∈ `ENABLED_MODULES` — `cock-monitor-shaper.timer`.
+- Опционально: `cock-monitor-incident.timer`, `cock-monitor-telegram.timer` — через env `STATUS_WARN_TIMERS` (список).
+- Вывод в `/status`: `WARN: cock-monitor-core.timer inactive` и т.д.
 
-**Критерий готовности:** на хосте без включённого таймера в `/status` явно видно предупреждение; на нормально настроенном — зелёно или нейтрально.
-
----
-
-## Задача P5 — Скрипт «инцидент-снимок» для ручного запуска
-
-**Цель:** по жалобе один раз собрать **зафиксированный** артефакт без ручного набора команд.
-
-**Новый файл:** например `bin/cock-incident-snapshot.sh`.
-
-**Поведение:**
-
-- Читает тот же `ENV_FILE` / `apply_defaults`, что остальной стек.
-- Печатает в stdout **или** пишет в **`/var/lib/cock-monitor/incident-last.txt`** (перезапись, лимит размера, например 24–32 KiB): хост, время, всё из P1 + последние `journalctl -u x-ui -n 20 --no-pager` и опционально другие unit из env (`SNAPSHOT_JOURNAL_UNITS`).
-- **Запрещено:** `conntrack -L`, полный `iptables-save`, безлимитный journal.
-
-**Критерий готовности:** скрипт исполняемый, задокументирован в README одним абзацем + пример вызова; `shellcheck` по возможности чистый.
+**Критерий готовности:** на хосте без включённого таймера в `/status` явно видно предупреждение; на нормально настроенном — нейтрально или без строки.
 
 ---
 
-## Задача P6 — Документация: плейбук расследования
+## Задача P5 — Снимок при инциденте ⏳ частично
+
+**Цель:** по жалобе собрать зафиксированный артефакт без ручного набора команд.
+
+**Уже есть (не дублировать с нуля):**
+
+| Инструмент | Когда использовать |
+|------------|-------------------|
+| `python -m cock_monitor burst-capture start --duration N` | Короткий reconnect-storm / burst (1 Hz JSONL + access log tail) |
+| `run incident` + `incident-status` | Непрерывная история 10s JSONL (`/var/lib/cock-monitor/incident-*.jsonl`) |
+| `bin/incident-postmortem.py` | Разбор incident JSONL за окно |
+
+**Опционально открыто:** одноразовый «ops snapshot» в текстовый файл (`/var/lib/cock-monitor/incident-last.txt`) с host block из P1 + усечённый `journalctl -u x-ui -n 20` — если нужен именно **перезаписываемый .txt**, а не JSONL. Новый файл: например `bin/cock-incident-snapshot.sh` (wrapper) или subcommand в `cock_monitor`.
+
+**Запрещено:** `conntrack -L`, полный `iptables-save`, безлимитный journal.
+
+---
+
+## Задача P6 — Документация: плейбук расследования ⏳ частично
 
 **Цель:** человек без памяти «что смотреть первым».
 
-**Файлы:** `README.md` (новый подраздел) или отдельный `docs/vpn-incident-playbook.md` со ссылкой из README.
+**Уже есть:** `docs/burst-diagnosis-london.md` (burst + incident), разделы README (incident sampler, burst-capture).
 
-**Содержание (кратко):**
+**Открыто:** единый `docs/vpn-incident-playbook.md` со ссылкой из README:
 
-1. Запросить `/status` (или `cock-status.sh`).
-2. Проверить алерты / `METRICS_DB` на интервал времени жалобы (пример SQL).
-3. Сопоставить: swap, load, conntrack delta, shaper, WAN drops.
-4. Отдельно: панель и DNS (`x-ui` + `resolved`) vs VPN-трафик.
-5. Упомянуть внешние факторы: MTProxy `-c`, лимиты cgroup, **известный баг mtproxy при PID>65535** (см. `examples/mtproto-proxy-exec-args.example`).
-
-**Критерий готовности:** ссылка из README, текст самодостаточен для нового админа.
+1. `/status` или `cock-status.sh`
+2. SQL по `conntrack_samples` / `host_samples` на интервал жалобы
+3. incident JSONL / burst-capture report
+4. shaper status file, WAN drops
+5. x-ui journal vs VPN-трафик; внешние факторы (MTProxy `-c`, PID>65535 — см. `examples/mtproto-proxy-exec-args.example`)
 
 ---
 
-## Задача P7 — (Опционально, низкий приоритет) Метрики панели / DNS
+## Задача P7 — (Опционально) Метрики панели / DNS ⏳ открыто
 
 **Цель:** не смешивать с ядром VPN, но фиксировать «хост тупит наружу».
 
-**Идеи:** раз в N минут простой `getent ahostsv4 api.telegram.org` или `curl --connect-timeout 2 -o /dev/null -s -w '%{http_code}'` — только если явно включено в env (`EXTERNAL_PROBE_ENABLE=1`), результат в БД или одна строка в статусе.
+**Идеи:** раз в N минут `getent` / `curl --connect-timeout 2` при `EXTERNAL_PROBE_ENABLE=1` — в `host_samples` или одна строка в статусе.
 
-**Риски:** лишние исходящие запросы, ложные тревоги при блокировках. Поэтому **P7 после** P1–P4.
+**Риски:** лишние исходящие запросы, ложные тревоги. **P7 после** P4.
 
 ---
 
 ## Общие ограничения для всех задач
 
 - **Не коммитить** реальные токены, MTProto `-S`, пути к чужим volume id — только плейсхолдеры в `config.example.env`.
-- **Не раздувать диск:** приоритет journald / retention уже обсуждался; новые файлы — перезапись или ротация.
+- **Не раздувать диск:** приоритет journald / retention; новые файлы — перезапись или ротация.
 - **Обратная совместимость:** старые `.env` без новых переменных должны работать (дефолты).
+- **Primary path — Python core**; bash-обёртки (`bin/check-conntrack.sh`, `bin/cock-status.sh`) только делегируют в `python -m cock_monitor`.
 - После изменений — кратко обновить `config.example.env` и при необходимости `DEPLOY.md`.
 
 ---
 
 ## Порядок выполнения для агента
 
-1. **P1** → **P2** → **P3** (даёт максимум пользы для расследований).  
-2. **P4** (быстро, снижает операционный риск «забыли включить таймер»).  
-3. **P5** → **P6** (удобство и передача знаний).  
-4. **P7** — по желанию после стабилизации P1–P4.
+| Приоритет | Задача | Статус |
+|-----------|--------|--------|
+| — | P1 статус | ✅ |
+| — | P2 `host_samples` | ✅ |
+| — | P3 контекст в STATS-алертах | ✅ |
+| 1 | **P4** предупреждение о неактивных таймерах | открыто |
+| 2 | **P5** ops snapshot (если нужен поверх burst/incident) | частично |
+| 3 | **P6** единый playbook | частично |
+| 4 | **P7** external probe | опционально |
