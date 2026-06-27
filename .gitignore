@@ -19,3 +19,4 @@ migration/*
 !migration/restore_3xui_clients.py
 backups/
 install/mtproto/restore-data/
+.cursor/skills/vps-ssh/
