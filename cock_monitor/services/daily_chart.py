@@ -95,7 +95,7 @@ def generate_chart(
     ax2.set_ylabel("delta / interval")
     ax2.legend(loc="upper left", fontsize=8)
     ax2.grid(True, alpha=0.3)
-    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=tz))
     plt.xticks(rotation=35)
 
     plt.tight_layout()

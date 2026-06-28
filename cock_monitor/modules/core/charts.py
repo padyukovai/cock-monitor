@@ -15,6 +15,13 @@ from cock_monitor.platform.storage.manager import StorageManager
 from cock_monitor.services.daily_chart import _resolve_hours, build_caption, fetch_rows
 
 _CAPTION_MAX = 1024
+MSK_CHART_TZ = timezone(timedelta(hours=3), name="MSK")
+
+
+def _chart_time_formatter():
+    import matplotlib.dates as mdates
+
+    return mdates.DateFormatter("%H:%M", tz=MSK_CHART_TZ)
 
 
 def _fetch_host_rows(conn, start_ts: int) -> list[tuple]:
@@ -40,11 +47,11 @@ def generate_core_chart(
     import matplotlib
 
     matplotlib.use("Agg")
-    import matplotlib.dates as mdates
     import matplotlib.pyplot as plt
 
     plt.style.use("dark_background")
-    tz = timezone(timedelta(hours=3), name="MSK")
+    tz = MSK_CHART_TZ
+    time_fmt = _chart_time_formatter()
 
     if not conntrack_rows and not host_rows:
         fig, ax = plt.subplots(figsize=(10, 4))
@@ -92,11 +99,15 @@ def generate_core_chart(
         ax2.set_ylabel("MemAvailable MiB")
         axes[2].grid(True, alpha=0.3)
         axes[2].set_title("Host metrics")
-        axes[2].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+        axes[2].xaxis.set_major_formatter(time_fmt)
+        axes[2].tick_params(axis="x", rotation=35)
     else:
         axes[2].text(0.5, 0.5, "No host samples", ha="center", va="center")
 
-    plt.xticks(rotation=35)
+    if conntrack_rows:
+        for ax in (axes[0], axes[1]):
+            ax.xaxis.set_major_formatter(time_fmt)
+            ax.tick_params(axis="x", rotation=35)
     plt.tight_layout()
     fig.savefig(output_path, dpi=100, bbox_inches="tight")
     plt.close(fig)
@@ -113,7 +124,7 @@ def run_core_chart(env_file: Path, output_path: Path, *, hours: int = 0) -> str:
     hours_win = _resolve_hours(hours)
     start_ts = int(time.time()) - hours_win * 3600
 
-    moscow_tz = timezone(timedelta(hours=3), name="MSK")
+    moscow_tz = MSK_CHART_TZ
     title_suffix = datetime.now(moscow_tz).strftime("%Y-%m-%d %H:%M MSK")
 
     mgr = StorageManager(Path(db_path))
