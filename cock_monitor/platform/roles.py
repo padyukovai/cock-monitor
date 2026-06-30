@@ -16,7 +16,7 @@ ROLE_PRESETS: dict[str, RolePreset] = {
     "hop-gateway": RolePreset(
         profile="stack-rf3",
         label="RF3 hop-gateway (VLESS tunnel monitor)",
-        modules=("core", "hop", "incident", "vless"),
+        modules=("core", "hop", "incident", "vless", "entry"),
     ),
     "exit-node": RolePreset(
         profile="stack-exit-node",

@@ -86,7 +86,11 @@ def evaluate_hop_alerts(
                 )
             )
 
-    total_err = int(error_delta.get("delta_total", 0) or 0)
+    total_err = (
+        int(error_delta.get("delta_mux_fail", 0) or 0)
+        + int(error_delta.get("delta_conn_refused", 0) or 0)
+        + int(error_delta.get("delta_retry_exhausted", 0) or 0)
+    )
     if thresholds.error_delta_crit > 0 and total_err >= thresholds.error_delta_crit:
         alerts.append(
             HopAlert(

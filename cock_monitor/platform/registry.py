@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from cock_monitor.platform.telegram.handler_utils import TelegramHandlerContext
 
-MODULE_IDS = frozenset({"core", "vless", "mtproxy", "wg", "incident", "shaper", "hop"})
+MODULE_IDS = frozenset({"core", "vless", "mtproxy", "wg", "incident", "shaper", "hop", "entry"})
 
 ModuleTick = Callable[[Path, bool], int]
 TelegramHandler = Callable[["TelegramHandlerContext"], None]
@@ -178,6 +178,7 @@ _registry: ModuleRegistry | None = None
 
 def _register_all(registry: ModuleRegistry) -> None:
     from cock_monitor.modules.core import register as register_core
+    from cock_monitor.modules.entry import register as register_entry
     from cock_monitor.modules.hop import register as register_hop
     from cock_monitor.modules.incident import register as register_incident
     from cock_monitor.modules.mtproxy import register as register_mtproxy
@@ -192,6 +193,7 @@ def _register_all(registry: ModuleRegistry) -> None:
     register_incident(registry)
     register_shaper(registry)
     register_hop(registry)
+    register_entry(registry)
 
 
 def get_registry() -> ModuleRegistry:

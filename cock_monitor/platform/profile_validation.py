@@ -43,6 +43,8 @@ def validate_profile_env(
     if profile in {"stack-rf3", "stack-exit-node", "stack-3xui"}:
         if profile == "stack-rf3" and "hop" not in enabled:
             warnings.append("stack-rf3 expects hop module in ENABLED_MODULES")
+        if profile == "stack-rf3" and "entry" not in enabled:
+            warnings.append("stack-rf3 expects entry module in ENABLED_MODULES")
         if profile in {"stack-exit-node", "stack-3xui"}:
             if "vless" not in enabled:
                 warnings.append("exit-node profile expects vless module")

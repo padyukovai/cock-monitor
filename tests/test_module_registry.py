@@ -18,7 +18,7 @@ def test_parse_enabled_modules_unknown_raises() -> None:
 def test_registry_lists_all_modules() -> None:
     registry = get_registry()
     ids = {spec.id for spec in registry.all_specs()}
-    assert ids == {"core", "vless", "mtproxy", "wg", "incident", "shaper", "hop"}
+    assert ids == {"core", "vless", "mtproxy", "wg", "incident", "shaper", "hop", "entry"}
 
 
 def test_module_enabled_from_env() -> None:

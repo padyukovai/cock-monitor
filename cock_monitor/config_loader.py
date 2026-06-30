@@ -32,6 +32,13 @@ def _validate_percent(name: str, value: int, errors: list[str]) -> None:
         errors.append(f"{name} must be within 1..100")
 
 
+def _as_bool_env(raw: dict[str, str], key: str, default: bool = False) -> bool:
+    s = (raw.get(key, "") or "").strip()
+    if not s:
+        return default
+    return s not in {"0", "false", "False", "no", "NO"}
+
+
 def validate_config(cfg: AppConfig) -> ConfigValidationResult:
     errors: list[str] = []
     warnings: list[str] = []
@@ -52,6 +59,11 @@ def validate_config(cfg: AppConfig) -> ConfigValidationResult:
         if not cfg.telegram.bot_token or not cfg.telegram.chat_id:
             errors.append(
                 "INCIDENT_ALERT_ENABLE=1 requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID"
+            )
+    if module_enabled("entry", cfg.raw) and _as_bool_env(cfg.raw, "ENTRY_ALERT_ENABLE"):
+        if not cfg.telegram.bot_token or not cfg.telegram.chat_id:
+            errors.append(
+                "ENTRY_ALERT_ENABLE=1 requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID"
             )
 
     if cfg.vless.xui_db_path and not Path(cfg.vless.xui_db_path).expanduser().is_file():
@@ -81,6 +93,7 @@ def validate_config(cfg: AppConfig) -> ConfigValidationResult:
         "WG_",
         "LA_",
         "HOP_",
+        "ENTRY_",
         "BURST_",
         "DAILY_",
     }

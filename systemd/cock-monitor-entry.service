@@ -1,0 +1,13 @@
+[Unit]
+Description=cock-monitor entry node health collect
+Documentation=file:///opt/cock-monitor/README.md
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/etc/cock-monitor.env
+WorkingDirectory=/opt/cock-monitor
+ExecStart=/opt/cock-monitor/.venv/bin/python -m cock_monitor run entry /etc/cock-monitor.env
+
+[Install]
+WantedBy=multi-user.target

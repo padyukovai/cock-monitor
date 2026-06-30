@@ -1,4 +1,4 @@
-"""Incremental xray error.log reader with hop-relevant pattern classification."""
+"""Incremental Xray access.log reader with per-inbound accept counts."""
 from __future__ import annotations
 
 import re
@@ -7,35 +7,31 @@ from pathlib import Path
 
 from cock_monitor.adapters.burst_access_log import LogTailState
 
-_ERROR_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("mux_fail", re.compile(r"failed to handler mux", re.IGNORECASE)),
-    ("conn_refused", re.compile(r"connection refused", re.IGNORECASE)),
-    ("retry_exhausted", re.compile(r"all retry attempts failed", re.IGNORECASE)),
-    ("tls_handshake", re.compile(r"TLS handshake error", re.IGNORECASE)),
-    ("io_timeout", re.compile(r"i/o timeout", re.IGNORECASE)),
-)
+_INBOUND_TAG_RE = re.compile(r"\[(in-[\w-]+)")
+
+
+def parse_inbound_tag(line: str) -> str | None:
+    """Extract inbound tag from an access.log accept line, e.g. in-443-tcp."""
+    if "accepted" not in line:
+        return None
+    match = _INBOUND_TAG_RE.search(line)
+    return match.group(1) if match else None
 
 
 @dataclass
-class ErrorLogDelta:
+class InboundAcceptDelta:
     delta_lines: int = 0
-    delta_total: int = 0
-    delta_mux_fail: int = 0
-    delta_conn_refused: int = 0
-    delta_retry_exhausted: int = 0
-    delta_tls_handshake: int = 0
-    delta_io_timeout: int = 0
-    tail: str = ""
+    by_inbound: dict[str, int] = field(default_factory=dict)
 
     @property
-    def delta_hop_total(self) -> int:
-        return self.delta_mux_fail + self.delta_conn_refused + self.delta_retry_exhausted
+    def delta_accepted(self) -> int:
+        return sum(self.by_inbound.values())
 
 
 @dataclass
-class XrayErrorLogTracker:
+class XrayAccessLogTracker:
     state: LogTailState | None = None
-    _tail_buf: list[str] = field(default_factory=list)
+    inbound_tags: tuple[str, ...] = ()
 
     def restore_state(self, state_path: Path, log_path: Path) -> None:
         if not log_path.is_file():
@@ -69,7 +65,7 @@ class XrayErrorLogTracker:
             return
         state_path.parent.mkdir(parents=True, exist_ok=True)
         text = f"inode={self.state.inode}\noffset={self.state.offset}\n"
-        tmp = state_path.parent / f".xray-error-state.{state_path.name}.tmp"
+        tmp = state_path.parent / f".xray-access-state.{state_path.name}.tmp"
         tmp.write_text(text, encoding="utf-8")
         tmp.replace(state_path)
 
@@ -101,34 +97,15 @@ class XrayErrorLogTracker:
         self.state.line_count += len(lines)
         return lines
 
-    def poll(self, *, tail_max_chars: int = 500) -> ErrorLogDelta:
+    def poll(self) -> InboundAcceptDelta:
         lines = self._read_new_lines()
-        counts = {key: 0 for key, _ in _ERROR_PATTERNS}
-        counts["total"] = 0
+        counts: dict[str, int] = {}
+        tag_filter = set(self.inbound_tags) if self.inbound_tags else None
         for line in lines:
-            matched = False
-            for key, pat in _ERROR_PATTERNS:
-                if pat.search(line):
-                    counts[key] += 1
-                    matched = True
-            if matched:
-                counts["total"] += 1
-        if lines:
-            self._tail_buf.extend(lines[-5:])
-            joined = "\n".join(self._tail_buf)
-            if len(joined) > tail_max_chars:
-                joined = joined[-tail_max_chars:]
-                self._tail_buf = joined.splitlines()
-        tail = "\n".join(self._tail_buf[-3:])
-        if len(tail) > tail_max_chars:
-            tail = tail[-tail_max_chars:]
-        return ErrorLogDelta(
-            delta_lines=len(lines),
-            delta_total=counts["total"],
-            delta_mux_fail=counts["mux_fail"],
-            delta_conn_refused=counts["conn_refused"],
-            delta_retry_exhausted=counts["retry_exhausted"],
-            delta_tls_handshake=counts["tls_handshake"],
-            delta_io_timeout=counts["io_timeout"],
-            tail=tail,
-        )
+            tag = parse_inbound_tag(line)
+            if tag is None:
+                continue
+            if tag_filter is not None and tag not in tag_filter:
+                continue
+            counts[tag] = counts.get(tag, 0) + 1
+        return InboundAcceptDelta(delta_lines=len(lines), by_inbound=counts)

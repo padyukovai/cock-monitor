@@ -1,23 +1,24 @@
-# RF3 (hop-gateway) post-install
+# RF3 post-install (cock-monitor)
 
-Profile `stack-rf3` installs cock-monitor modules (`core`, `hop`, `incident`, `vless`).  
-Hop SOCKS probes and Telegram egress via proxy are **not** part of modular install.
+Profile `stack-rf3` installs cock-monitor modules (`core`, `hop`, `incident`, `vless`, `entry`).
 
-For per-hop traffic in VLESS daily reports, enable Xray outbound stats in 3x-ui (`statsOutboundUplink` / `statsOutboundDownlink` in policy.system).
+`entry` watches VLESS accepts by inbound tag and TLS/i/o errors in xray error.log (TSPU signals).
 
 ## After `install.sh --profile stack-rf3`
-
-Install prints a checklist. Run manually:
 
 ```bash
 sudo bash install/rf3/setup-hop-probe.sh
 ```
 
-This creates `xray-hop-probe.service` (local SOCKS `10891`/`10892`) and enables hop egress probes.
+Creates `xray-hop-probe.service` (local SOCKS `10891`/`10892`) and enables hop egress probes.
 
-Optional: pass `PUBLIC_IP` if auto-detect fails.
+Optional automated post-install:
 
-## Verify
+```bash
+sudo bash install/install.sh --profile stack-rf3 --token '...' --chat-id '...' --run-post-install
+```
+
+## Verify monitoring
 
 ```bash
 sudo .venv/bin/python -m cock_monitor preflight --profile stack-rf3 /etc/cock-monitor.env
@@ -25,10 +26,13 @@ systemctl status xray-hop-probe.service
 sudo .venv/bin/python -m cock_monitor run hop /etc/cock-monitor.env --dry-run
 ```
 
-## Automated post-install
+## VPN infrastructure (private repo)
 
-```bash
-sudo bash install/install.sh --profile stack-rf3 --token '...' --chat-id '...' --run-post-install
-```
+RF3 routing, IPv6, split-tunnel, hop mux tuning, IPv4 rotation (FirstByte), and full server inventory live in the private **cockvpn** sibling repository:
 
-`--run-post-install` executes `POST_INSTALL_SCRIPTS` from the profile. Default install only prints the checklist.
+- `install/rf3/` — netplan, policy routing, xray patches
+- `.cursor/skills/vps-ssh/` — SSH aliases and stack details
+- `.cursor/skills/rf3-ip-block-rotation/` — IP block diagnosis and rotation runbook
+- `.cursor/skills/server-disk-cleanup/` — disk maintenance
+
+See cockvpn `install/rf3/README.md` for operational runbooks.

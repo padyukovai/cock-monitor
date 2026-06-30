@@ -1,0 +1,11 @@
+[Unit]
+Description=Run cock-monitor entry health every minute
+Documentation=file:///opt/cock-monitor/README.md
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+Unit=cock-monitor-entry.service
+
+[Install]
+WantedBy=timers.target
