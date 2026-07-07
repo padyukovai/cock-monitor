@@ -40,8 +40,8 @@ def _fetch_host_rows(conn, start_ts: int) -> list[tuple]:
 def _fetch_host_leak_rows(conn, start_ts: int) -> list[tuple]:
     cur = conn.execute(
         """
-        SELECT ts, mem_avail_kb, xray_rss_mb, xray_fds,
-               ss_estab, ss_time_wait, fill_pct
+        SELECT h.ts, h.mem_avail_kb, h.xray_rss_mb, h.xray_fds,
+               h.ss_estab, h.ss_time_wait, c.fill_pct
         FROM host_samples h
         LEFT JOIN conntrack_samples c ON c.ts = h.ts
         WHERE h.ts >= ?
