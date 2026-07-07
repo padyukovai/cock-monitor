@@ -22,7 +22,7 @@ def register(registry: ModuleRegistry) -> None:
             schema_migrate=migrate_core_schema,
             telegram_commands=(
                 TelegramCommand("status", "Full host + conntrack status", "core", handler=handle_status),
-                TelegramCommand("chart", "PNG chart (conntrack + host, 24h)", "core", handler=handle_chart),
+                TelegramCommand("chart", "PNG chart (conntrack + host, 24h); use 'chart leak' for leak view", "core", handler=handle_chart),
                 TelegramCommand("help", "Show enabled module commands", "core"),
             ),
             run_tick=lambda env, dry: run_core_tick(env, dry_run=dry),

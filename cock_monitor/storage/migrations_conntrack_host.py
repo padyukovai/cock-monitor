@@ -13,7 +13,7 @@ import sqlite3
 from collections.abc import Callable
 
 COMPONENT = "conntrack_host"
-CURRENT_VERSION = 1
+CURRENT_VERSION = 2
 
 _REGISTRY_DDL = """
 CREATE TABLE IF NOT EXISTS cock_monitor_schema (
@@ -61,6 +61,28 @@ CREATE TABLE IF NOT EXISTS host_samples (
 CREATE INDEX IF NOT EXISTS idx_host_samples_ts ON host_samples(ts);
 """
 
+_V2_LEAK_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("xray_rss_mb", "REAL"),
+    ("xray_fds", "INTEGER"),
+    ("xray_cpu_pct", "REAL"),
+    ("ss_estab", "INTEGER"),
+    ("ss_time_wait", "INTEGER"),
+    ("ss_close_wait", "INTEGER"),
+    ("ss_fin_wait", "INTEGER"),
+)
+
+
+def _apply_v2(conn: sqlite3.Connection) -> None:
+    """Add leak-diagnostic columns to host_samples (nullable, backward compatible)."""
+    existing = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(host_samples)").fetchall()
+    }
+    for name, col_type in _V2_LEAK_COLUMNS:
+        if name in existing:
+            continue
+        conn.execute(f"ALTER TABLE host_samples ADD COLUMN {name} {col_type}")
+
 
 def _get_version(conn: sqlite3.Connection) -> int:
     cur = conn.execute(
@@ -88,6 +110,7 @@ def _apply_v1(conn: sqlite3.Connection) -> None:
 
 MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [
     (1, _apply_v1),
+    (2, _apply_v2),
 ]
 
 

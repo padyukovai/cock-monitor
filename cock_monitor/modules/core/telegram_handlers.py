@@ -6,7 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from cock_monitor.modules.core.charts import run_core_chart
+from cock_monitor.modules.core.charts import run_core_chart, run_leak_chart
 from cock_monitor.modules.core.status import build_core_status
 from cock_monitor.modules.wg.service import wg_status_text
 from cock_monitor.platform.registry import module_enabled
@@ -35,17 +35,29 @@ def handle_status(ctx: TelegramHandlerContext) -> None:
 
 
 def handle_chart(ctx: TelegramHandlerContext) -> None:
+    parts = ctx.text.split(None, 1)
+    args = parts[1].strip().lower() if len(parts) > 1 else ""
+    use_leak = args in ("leak", "leak24", "memory")
     fd, tmp_path = tempfile.mkstemp(suffix=".png")
     try:
         os.close(fd)
         out = Path(tmp_path)
-        ok, caption = run_command_with_timeout(
-            ctx.client,
-            ctx.chat_id,
-            "chart",
-            lambda: run_core_chart(ctx.env_file, out),
-            known_exceptions=(FileNotFoundError, RuntimeError, ImportError),
-        )
+        if use_leak:
+            ok, caption = run_command_with_timeout(
+                ctx.client,
+                ctx.chat_id,
+                "chart leak",
+                lambda: run_leak_chart(ctx.env_file, out),
+                known_exceptions=(FileNotFoundError, RuntimeError, ImportError),
+            )
+        else:
+            ok, caption = run_command_with_timeout(
+                ctx.client,
+                ctx.chat_id,
+                "chart",
+                lambda: run_core_chart(ctx.env_file, out),
+                known_exceptions=(FileNotFoundError, RuntimeError, ImportError),
+            )
         if ok and isinstance(caption, str):
             ctx.client.send_photo(ctx.chat_id, out, caption=caption)
     finally:

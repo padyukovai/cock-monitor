@@ -37,6 +37,122 @@ def _fetch_host_rows(conn, start_ts: int) -> list[tuple]:
     return list(cur.fetchall())
 
 
+def _fetch_host_leak_rows(conn, start_ts: int) -> list[tuple]:
+    cur = conn.execute(
+        """
+        SELECT ts, mem_avail_kb, xray_rss_mb, xray_fds,
+               ss_estab, ss_time_wait, fill_pct
+        FROM host_samples h
+        LEFT JOIN conntrack_samples c ON c.ts = h.ts
+        WHERE h.ts >= ?
+        ORDER BY h.ts
+        """,
+        (start_ts,),
+    )
+    return list(cur.fetchall())
+
+
+def generate_leak_chart(
+    rows: list[tuple],
+    output_path: Path,
+    *,
+    title_suffix: str,
+) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    plt.style.use("dark_background")
+    tz = MSK_CHART_TZ
+    time_fmt = _chart_time_formatter()
+
+    if not rows:
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.text(0.5, 0.5, "No leak samples in range", ha="center", va="center")
+        ax.set_axis_off()
+        plt.tight_layout()
+        fig.savefig(output_path, dpi=100, bbox_inches="tight")
+        plt.close(fig)
+        return
+
+    fig, axes = plt.subplots(3, 1, figsize=(10, 10), sharex=True)
+    ts_list = [datetime.fromtimestamp(r[0], tz=tz) for r in rows]
+
+    rss = [float(r[2]) if r[2] is not None else float("nan") for r in rows]
+    mem_mb = [float(r[1]) / 1024 if r[1] is not None else float("nan") for r in rows]
+    axes[0].plot(ts_list, rss, color="#ff5722", label="xray RSS MB")
+    ax0b = axes[0].twinx()
+    ax0b.plot(ts_list, mem_mb, color="#4caf50", label="MemAvailable MiB", alpha=0.8)
+    axes[0].set_ylabel("xray RSS MB")
+    ax0b.set_ylabel("MemAvailable MiB")
+    axes[0].set_title(f"Memory leak view — {title_suffix}")
+    axes[0].grid(True, alpha=0.3)
+
+    fds = [float(r[3]) if r[3] is not None else float("nan") for r in rows]
+    axes[1].plot(ts_list, fds, color="#00e5ff", label="xray FDs")
+    axes[1].set_ylabel("open FDs")
+    axes[1].legend(loc="upper left")
+    axes[1].grid(True, alpha=0.3)
+
+    estab = [float(r[4]) if r[4] is not None else float("nan") for r in rows]
+    tw = [float(r[5]) if r[5] is not None else float("nan") for r in rows]
+    fill = [float(r[6]) if r[6] is not None else float("nan") for r in rows]
+    axes[2].plot(ts_list, estab, color="#8bc34a", label="TCP ESTAB")
+    axes[2].plot(ts_list, tw, color="#ff9800", label="TCP TIME-WAIT")
+    ax2b = axes[2].twinx()
+    ax2b.plot(ts_list, fill, color="#e91e63", label="conntrack fill %", alpha=0.7)
+    axes[2].set_ylabel("socket states")
+    ax2b.set_ylabel("conntrack fill %")
+    axes[2].legend(loc="upper left", fontsize=8)
+    ax2b.legend(loc="upper right", fontsize=8)
+    axes[2].grid(True, alpha=0.3)
+
+    for ax in axes:
+        ax.xaxis.set_major_formatter(time_fmt)
+        ax.tick_params(axis="x", rotation=35)
+    plt.tight_layout()
+    fig.savefig(output_path, dpi=100, bbox_inches="tight")
+    plt.close(fig)
+
+
+def run_leak_chart(env_file: Path, output_path: Path, *, hours: int = 0) -> str:
+    env_path = env_file.expanduser().resolve()
+    if not env_path.is_file():
+        raise FileNotFoundError(str(env_path))
+
+    loaded = load_config(env_path)
+    merge_env_into_process(loaded.app.raw)
+    db_path = os.environ.get("METRICS_DB", DEFAULT_METRICS_DB).strip()
+    hours_win = _resolve_hours(hours)
+    start_ts = int(time.time()) - hours_win * 3600
+
+    moscow_tz = MSK_CHART_TZ
+    title_suffix = datetime.now(moscow_tz).strftime("%Y-%m-%d %H:%M MSK")
+
+    mgr = StorageManager(Path(db_path))
+    conn = mgr.open()
+    try:
+        rows = _fetch_host_leak_rows(conn, start_ts)
+    finally:
+        conn.close()
+
+    generate_leak_chart(rows, output_path, title_suffix=title_suffix)
+    caption = f"Leak diagnostics ({hours_win}h)"
+    host = socket.gethostname()
+    if rows:
+        rss_vals = [r[2] for r in rows if r[2] is not None]
+        mem_vals = [r[1] for r in rows if r[1] is not None]
+        if rss_vals:
+            caption += f"\nxray RSS: min={min(rss_vals):.0f} max={max(rss_vals):.0f} MB"
+        if mem_vals:
+            caption += f"\nMemAvailable min: {min(mem_vals) // 1024} MiB"
+    caption = f"{host}\n{caption}"
+    if len(caption) > _CAPTION_MAX:
+        caption = caption[: _CAPTION_MAX - 3] + "..."
+    return caption
+
+
 def generate_core_chart(
     conntrack_rows: list[tuple],
     host_rows: list[tuple],

@@ -63,6 +63,11 @@ def apply_incident_defaults() -> None:
     os.environ.setdefault("INCIDENT_POSTMORTEM_ENABLE", "1")
     os.environ.setdefault("DRY_RUN", "0")
 
+    os.environ.setdefault("INCIDENT_LEAK_INVESTIGATION", "0")
+    os.environ.setdefault("INCIDENT_LEAK_INVESTIGATION_HOURS", "24")
+    os.environ.setdefault("INCIDENT_LEAK_STATE_FILE", "/var/lib/cock-monitor/leak_investigation.state")
+    os.environ.setdefault("INCIDENT_LEAK_AUTO_REPORT", "1")
+
 
 def resolve_env_file(argv0: str | None) -> Path | None:
     if argv0:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -11,6 +12,14 @@ from typing import Any
 from cock_monitor.adapters.linux_host import read_hostname_fqdn, read_load_mem_from_proc
 from cock_monitor.modules.incident.env import apply_incident_defaults, get_int, load_env_overwrite, resolve_env_file
 from cock_monitor.modules.incident.level import compute_level, incident_hop_level_enabled
+from cock_monitor.modules.incident.leak_profile import (
+    append_leak_investigation_line,
+    collect_leak_enriched,
+    leak_investigation_enabled,
+    leak_log_path,
+    load_leak_state,
+    maybe_finalize_leak_investigation,
+)
 from cock_monitor.modules.incident.postmortem import (
     build_json_line,
     incident_track_and_postmortem,
@@ -149,6 +158,17 @@ def run_once() -> int:
 
     with logfile.open("a", encoding="utf-8") as f:
         f.write(line)
+
+    leak_st = load_leak_state()
+    leak_active = leak_st.get("active") == "1" or leak_investigation_enabled()
+    if leak_active:
+        enriched = collect_leak_enriched(leak_st)
+        leak_file = leak_log_path(now_ts)
+        base_row = json.loads(line)
+        with leak_file.open("a", encoding="utf-8") as f:
+            f.write(append_leak_investigation_line(base_row, enriched))
+
+    maybe_finalize_leak_investigation(host)
 
     incident_track_and_postmortem(old_level, level, now_ts, host, st, log_dir)
 

@@ -15,6 +15,7 @@ from typing import TextIO
 from cock_monitor.config_loader import load_config
 from cock_monitor.defaults import DEFAULT_METRICS_DB, DEFAULT_STATE_FILE
 from cock_monitor.domain.conntrack_policy import metrics_phase_result, severity_from_fill_pct, should_send_fill_alert
+from cock_monitor.services.leak_probe import collect_leak_probe
 from cock_monitor.storage.conntrack_host_repository import (
     ConntrackHostRepository,
     ConntrackSampleInsert,
@@ -175,6 +176,8 @@ class ConntrackCheckConfig:
     shaper_iface: str
     metrics_collect_tc_qdisc: bool
     stats_alert_shaper_max_age_min: int
+    leak_probe_enable: bool
+    leak_xray_match: str
 
     @classmethod
     def from_env(cls, raw: dict[str, str], *, dry_run_override: bool) -> ConntrackCheckConfig:
@@ -221,6 +224,8 @@ class ConntrackCheckConfig:
             shaper_iface=raw.get("SHAPER_IFACE", "ens3").strip() or "ens3",
             metrics_collect_tc_qdisc=_as_bool(raw.get("METRICS_COLLECT_TC_QDISC", ""), default=True),
             stats_alert_shaper_max_age_min=_as_int(raw.get("STATS_ALERT_SHAPER_MAX_AGE_MIN", ""), 15),
+            leak_probe_enable=_as_bool(raw.get("LEAK_PROBE_ENABLE", ""), default=True),
+            leak_xray_match=raw.get("LEAK_XRAY_PROCESS_MATCH", "xray-linux-amd64").strip() or "xray-linux-amd64",
         )
 
 
@@ -359,6 +364,10 @@ def _collect_host_sample(cfg: ConntrackCheckConfig, now_ts: int) -> HostSampleIn
         if first:
             tc_qdisc_root = first[:400]
 
+    leak = None
+    if cfg.leak_probe_enable:
+        leak = collect_leak_probe(xray_match=cfg.leak_xray_match)
+
     return HostSampleInsert(
         ts=now_ts,
         load1=load1,
@@ -371,6 +380,13 @@ def _collect_host_sample(cfg: ConntrackCheckConfig, now_ts: int) -> HostSampleIn
         shaper_rate_mbit=shaper_rate,
         shaper_cpu_pct=shaper_cpu,
         tc_qdisc_root=tc_qdisc_root,
+        xray_rss_mb=leak.xray_rss_mb if leak else None,
+        xray_fds=leak.xray_fds if leak else None,
+        xray_cpu_pct=leak.xray_cpu_pct if leak else None,
+        ss_estab=leak.ss_estab if leak else None,
+        ss_time_wait=leak.ss_time_wait if leak else None,
+        ss_close_wait=leak.ss_close_wait if leak else None,
+        ss_fin_wait=leak.ss_fin_wait if leak else None,
     )
 
 

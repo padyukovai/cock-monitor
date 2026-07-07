@@ -69,6 +69,10 @@ def main(argv: list[str] | None = None) -> int:
         from cock_monitor.burst_capture_cli import run as burst_capture_run
 
         return burst_capture_run(a[1:])
+    if a[:1] == ["leak-investigation"]:
+        from cock_monitor.leak_investigation_cli import run as leak_inv_run
+
+        return leak_inv_run(a[1:])
     if a[:1] == ["telegram"]:
         from cock_monitor.platform.telegram.__main__ import main as telegram_main
 
@@ -76,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     if a[:1] in (["help"], ["-h"], ["--help"]):
         print(
             "Usage: python -m cock_monitor "
-            "{run|modules|install|uninstall|preflight|config-check|burst-capture|telegram} ...\n"
+            "{run|modules|install|uninstall|preflight|config-check|burst-capture|leak-investigation|telegram} ...\n"
             "  run <module> [env_file] [--dry-run]\n"
             "  install --profile stack-3xui [--role exit-node] [--wipe-data]\n"
             "  burst-capture --env-file /etc/cock-monitor.env start --duration 60"

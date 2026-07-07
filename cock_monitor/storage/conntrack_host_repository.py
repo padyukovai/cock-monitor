@@ -46,6 +46,13 @@ class HostSampleInsert:
     shaper_rate_mbit: float | None
     shaper_cpu_pct: int | None
     tc_qdisc_root: str | None
+    xray_rss_mb: float | None = None
+    xray_fds: int | None = None
+    xray_cpu_pct: float | None = None
+    ss_estab: int | None = None
+    ss_time_wait: int | None = None
+    ss_close_wait: int | None = None
+    ss_fin_wait: int | None = None
 
 
 class ConntrackHostRepository:
@@ -127,8 +134,10 @@ class ConntrackHostRepository:
                 INSERT INTO host_samples (
                   ts, load1, mem_avail_kb, swap_used_kb,
                   tcp_inuse, tcp_orphan, tcp_tw, tcp6_inuse,
-                  shaper_rate_mbit, shaper_cpu_pct, tc_qdisc_root
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                  shaper_rate_mbit, shaper_cpu_pct, tc_qdisc_root,
+                  xray_rss_mb, xray_fds, xray_cpu_pct,
+                  ss_estab, ss_time_wait, ss_close_wait, ss_fin_wait
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     host.ts,
@@ -142,6 +151,13 @@ class ConntrackHostRepository:
                     host.shaper_rate_mbit,
                     host.shaper_cpu_pct,
                     host.tc_qdisc_root,
+                    host.xray_rss_mb,
+                    host.xray_fds,
+                    host.xray_cpu_pct,
+                    host.ss_estab,
+                    host.ss_time_wait,
+                    host.ss_close_wait,
+                    host.ss_fin_wait,
                 ),
             )
             self._conn.commit()
@@ -167,6 +183,20 @@ class ConntrackHostRepository:
             (max_rows,),
         )
         self._conn.commit()
+
+    def fetch_host_leak_rows(self, start_ts: int) -> list[tuple]:
+        """Return host leak metrics rows since start_ts."""
+        cur = self._conn.execute(
+            """
+            SELECT ts, mem_avail_kb, xray_rss_mb, xray_fds, xray_cpu_pct,
+                   ss_estab, ss_time_wait, ss_close_wait, ss_fin_wait
+            FROM host_samples
+            WHERE ts >= ?
+            ORDER BY ts
+            """,
+            (start_ts,),
+        )
+        return list(cur.fetchall())
 
     def delete_host_orphans(self) -> None:
         self._conn.execute(

@@ -48,6 +48,8 @@ V2_UNITS = [
     "cock-monitor-mtproxy.timer",
     "cock-monitor-incident.service",
     "cock-monitor-incident.timer",
+    "cock-monitor-leak-investigation.service",
+    "cock-monitor-leak-investigation.timer",
     "cock-monitor-shaper.service",
     "cock-monitor-shaper.timer",
     "cock-monitor-hop.service",
