@@ -20,3 +20,4 @@ migration/*
 backups/
 install/mtproto/restore-data/
 .cursor/skills/vps-ssh/
+docs/rf3-x-ui-update.md

@@ -155,3 +155,46 @@ def test_build_leak_investigation_report_from_jsonl(tmp_path: Path) -> None:
     )
     assert "xray RSS" in body
     assert "Hypotheses" in body
+
+
+def test_leak_watchdog_triggers_restart(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from cock_monitor.modules.core import leak_watchdog as wd
+
+    env = tmp_path / "cock.env"
+    env.write_text(
+        "LEAK_WATCHDOG_ENABLE=1\n"
+        "LEAK_WATCHDOG_RSS_MB=750\n"
+        "LEAK_WATCHDOG_COOLDOWN_SEC=0\n"
+        "DRY_RUN=0\n"
+        "TELEGRAM_BOT_TOKEN=\n"
+        "TELEGRAM_CHAT_ID=\n"
+        "STATE_FILE=/tmp/unused\n",
+        encoding="utf-8",
+    )
+    state = tmp_path / "leak_watchdog.state"
+    monkeypatch.setattr(wd.LeakWatchdogConfig, "from_env", lambda raw, dry_run=False: wd.LeakWatchdogConfig(
+        enabled=True,
+        rss_mb=750.0,
+        cooldown_sec=0,
+        dry_run=False,
+        bot_token="",
+        chat_id="",
+        proxy_url=None,
+        state_file=state,
+        xray_match="xray-linux-amd64",
+        restart_cmd=["/usr/bin/x-ui", "restart"],
+    ))
+    monkeypatch.setattr(
+        wd,
+        "collect_leak_probe",
+        lambda **kwargs: type("P", (), {"xray_rss_mb": 800.0})(),
+    )
+    monkeypatch.setattr(wd.shutil, "which", lambda cmd: "/usr/bin/x-ui" if cmd == "/usr/bin/x-ui" else None)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        wd.subprocess,
+        "run",
+        lambda cmd, **kwargs: calls.append(cmd) or type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
+    )
+    assert wd.run_leak_watchdog(env) == 0
+    assert calls == [["/usr/bin/x-ui", "restart"]]
