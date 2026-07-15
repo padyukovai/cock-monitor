@@ -11,7 +11,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from cock_monitor.adapters.linux_host import (
+    find_main_xray_pid,
     find_process_by_comm,
+    _parse_csv_tokens,
+    DEFAULT_MAIN_XRAY_CMDLINE_EXCLUDE,
+    DEFAULT_MAIN_XRAY_CMDLINE_INCLUDE,
     parse_ss_state_line_counts,
     read_process_stats,
 )
@@ -90,7 +94,22 @@ def collect_leak_probe(
         os.environ.get("LEAK_PROBE_STATE_FILE", "/var/lib/cock-monitor/leak_probe.state")
     )
     prev_pid, prev_ticks, prev_wall_ns = _read_probe_state(state_path)
-    xray_pid = find_process_by_comm(xray_match) or 0
+    include = _parse_csv_tokens(
+        os.environ.get("LEAK_XRAY_CMDLINE_INCLUDE"),
+        DEFAULT_MAIN_XRAY_CMDLINE_INCLUDE,
+    )
+    exclude = _parse_csv_tokens(
+        os.environ.get("LEAK_XRAY_CMDLINE_EXCLUDE"),
+        DEFAULT_MAIN_XRAY_CMDLINE_EXCLUDE,
+    )
+    xray_pid = (
+        find_main_xray_pid(
+            xray_match,
+            cmdline_include=include,
+            cmdline_exclude=exclude,
+        )
+        or 0
+    )
 
     xray_rss: float | None = None
     xray_fds: int | None = None

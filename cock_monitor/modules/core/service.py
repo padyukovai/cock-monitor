@@ -15,14 +15,20 @@ def run_core_tick(
     *,
     dry_run: bool = False,
 ) -> int:
-    """Run conntrack check then optional MEM alert (same timer tick)."""
+    """Run conntrack check then MEM/leak alerts and leak watchdog.
+
+    Alert Telegram failures are soft: they must not skip leak_watchdog, otherwise
+    a down proxy leaves xray growing without auto-restart.
+    """
+    worst = 0
     rc = run_conntrack_check(env_file, dry_run_override=dry_run)
     if rc != 0:
         return rc
-    rc = run_mem_alert(env_file, dry_run=dry_run)
-    if rc != 0:
-        return rc
-    rc = run_leak_alert(env_file, dry_run=dry_run)
-    if rc != 0:
-        return rc
-    return run_leak_watchdog(env_file, dry_run=dry_run)
+    for step in (run_mem_alert, run_leak_alert):
+        rc = step(env_file, dry_run=dry_run)
+        if rc != 0:
+            worst = rc
+    wd = run_leak_watchdog(env_file, dry_run=dry_run)
+    if wd != 0:
+        return wd
+    return worst

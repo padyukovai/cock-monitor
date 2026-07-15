@@ -239,8 +239,20 @@ def read_netstat_tcp_ext(
     return parse_netstat_tcp_ext(text, keys)
 
 
+# Default filters for "main" 3x-ui xray vs hop-probe / temp outbound probes.
+DEFAULT_MAIN_XRAY_CMDLINE_INCLUDE: tuple[str, ...] = ("bin/config.json",)
+DEFAULT_MAIN_XRAY_CMDLINE_EXCLUDE: tuple[str, ...] = (
+    "xray-hop-probe",
+    "/tmp/hop-src-",
+    "hop-src-",
+)
+
+
 def find_process_by_comm(pattern: str) -> int | None:
-    """Return newest PID matching comm pattern via pgrep -n."""
+    """Return newest PID matching cmd/comm pattern via pgrep -n -f.
+
+    Prefer find_main_xray_pid() when hop-probe / temp xray procs share the same binary.
+    """
     if not pattern.strip():
         return None
     try:
@@ -262,6 +274,148 @@ def find_process_by_comm(pattern: str) -> int | None:
         return int(raw[0])
     except ValueError:
         return None
+
+
+def _read_proc_cmdline(pid: int) -> str:
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return ""
+    return raw.replace(bytes([0]), b" ").decode("utf-8", errors="replace").strip()
+
+
+def _read_proc_rss_kb(pid: int) -> int:
+    try:
+        text = Path(f"/proc/{pid}/status").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return 0
+    for line in text.splitlines():
+        if line.startswith("VmRSS:"):
+            parts = line.split()
+            if len(parts) >= 2 and parts[1].isdigit():
+                return int(parts[1])
+    return 0
+
+
+def _read_proc_ppid(pid: int) -> int | None:
+    try:
+        text = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    close = text.rfind(")")
+    if close < 0:
+        return None
+    rest = text[close + 2 :].split()
+    if len(rest) < 4:
+        return None
+    try:
+        return int(rest[1])  # ppid
+    except ValueError:
+        return None
+
+
+def _parent_is_xui(pid: int) -> bool:
+    ppid = _read_proc_ppid(pid)
+    if not ppid or ppid <= 1:
+        return False
+    cmd = _read_proc_cmdline(ppid)
+    if not cmd:
+        try:
+            cmd = Path(f"/proc/{ppid}/comm").read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            return False
+    return "x-ui" in cmd
+
+
+def find_processes_by_cmdline(pattern: str) -> list[int]:
+    """Return all PIDs matching -f pattern."""
+    if not pattern.strip():
+        return []
+    try:
+        out = subprocess.run(
+            ["pgrep", "-f", pattern],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if out.returncode != 0:
+        return []
+    pids: list[int] = []
+    for line in (out.stdout or "").splitlines():
+        line = line.strip()
+        if line.isdigit():
+            pids.append(int(line))
+    return pids
+
+
+def _parse_csv_tokens(raw: str | None, default: tuple[str, ...]) -> tuple[str, ...]:
+    if raw is None:
+        return default
+    s = raw.strip()
+    if not s:
+        return ()
+    return tuple(part.strip() for part in s.split(",") if part.strip())
+
+
+
+def _is_xray_binary(pid: int) -> bool:
+    """True if /proc/pid/exe is an xray binary (not bash/python holding the string)."""
+    try:
+        name = Path(f"/proc/{pid}/exe").resolve().name
+    except OSError:
+        return False
+    return name.startswith("xray")
+
+
+def find_main_xray_pid(
+    pattern: str = "xray-linux-amd64",
+    *,
+    cmdline_include: tuple[str, ...] | list[str] | None = None,
+    cmdline_exclude: tuple[str, ...] | list[str] | None = None,
+) -> int | None:
+    """Pick the 3x-ui main xray, not hop-probe / temp hop-src helpers.
+
+    Selection order among PIDs matching ``pattern``:
+    1. Drop cmdline hits on exclude substrings (hop-probe, /tmp/hop-src-, …).
+    2. Prefer cmdline hits on include substrings (``bin/config.json``).
+    3. Prefer child of an ``x-ui`` process.
+    4. Fallback: highest VmRSS (main inbound almost always dwarfs probe helpers).
+    """
+    include = (
+        tuple(cmdline_include)
+        if cmdline_include is not None
+        else DEFAULT_MAIN_XRAY_CMDLINE_INCLUDE
+    )
+    exclude = (
+        tuple(cmdline_exclude)
+        if cmdline_exclude is not None
+        else DEFAULT_MAIN_XRAY_CMDLINE_EXCLUDE
+    )
+
+    scored: list[tuple[int, int, int, int]] = []  # include_hit, xui_parent, rss_kb, pid
+    for pid in find_processes_by_cmdline(pattern):
+        if not _is_xray_binary(pid):
+            continue
+        cmd = _read_proc_cmdline(pid)
+        if not cmd:
+            continue
+        if any(tok in cmd for tok in exclude):
+            continue
+        include_hit = 1 if (not include or any(tok in cmd for tok in include)) else 0
+        scored.append(
+            (include_hit, 1 if _parent_is_xui(pid) else 0, _read_proc_rss_kb(pid), pid)
+        )
+
+    if not scored:
+        return find_process_by_comm(pattern)
+
+    preferred = [s for s in scored if s[0] == 1]
+    pool = preferred if preferred else scored
+    pool.sort(key=lambda t: (t[1], t[2], t[3]), reverse=True)
+    return pool[0][3]
 
 
 def read_proc_stat_ticks(pid: int) -> tuple[int, int] | None:

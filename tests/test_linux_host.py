@@ -1,6 +1,8 @@
 """Tests for cock_monitor.adapters.linux_host."""
 from __future__ import annotations
 
+import pytest
+
 from pathlib import Path
 
 from cock_monitor.adapters import linux_host as lh
@@ -52,3 +54,43 @@ def test_read_load_mem_from_proc(tmp_path: Path) -> None:
     l1, kb = lh.read_load_mem_from_proc(la, mi)
     assert l1 == "1.25"
     assert kb == 999
+
+
+def test_find_main_xray_pid_prefers_config_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from cock_monitor.adapters import linux_host as lh
+
+    # fake PIDs: hop-probe (newest), hop-src, main
+    fake = {
+        101: ("/usr/local/x-ui/bin/xray-linux-amd64 run -c /etc/xray-hop-probe/config.json", 5000, 1),
+        102: ("/usr/local/x-ui/bin/xray-linux-amd64 run -c /tmp/hop-src-185.189.14.152.json", 4000, 1),
+        103: ("bin/xray-linux-amd64 -c bin/config.json", 600_000, 50),
+    }
+
+    monkeypatch.setattr(lh, "find_processes_by_cmdline", lambda pattern: [101, 102, 103])
+    monkeypatch.setattr(lh, "_is_xray_binary", lambda pid: True)
+    monkeypatch.setattr(lh, "_read_proc_cmdline", lambda pid: fake[pid][0])
+    monkeypatch.setattr(lh, "_read_proc_rss_kb", lambda pid: fake[pid][1])
+    monkeypatch.setattr(lh, "_parent_is_xui", lambda pid: fake[pid][2] == 50)
+    monkeypatch.setattr(lh, "find_process_by_comm", lambda pattern: 101)
+
+    assert lh.find_main_xray_pid("xray-linux-amd64") == 103
+
+
+def test_find_main_xray_pid_falls_back_to_max_rss(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cock_monitor.adapters import linux_host as lh
+
+    fake = {
+        201: ("/usr/local/x-ui/bin/xray-linux-amd64 -c /opt/custom.json", 12_000, False),
+        202: ("/usr/local/x-ui/bin/xray-linux-amd64 -c /opt/other.json", 400_000, False),
+    }
+    monkeypatch.setattr(lh, "find_processes_by_cmdline", lambda pattern: [201, 202])
+    monkeypatch.setattr(lh, "_is_xray_binary", lambda pid: True)
+    monkeypatch.setattr(lh, "_read_proc_cmdline", lambda pid: fake[pid][0])
+    monkeypatch.setattr(lh, "_read_proc_rss_kb", lambda pid: fake[pid][1])
+    monkeypatch.setattr(lh, "_parent_is_xui", lambda pid: fake[pid][2])
+    # no bin/config.json → include_hit=0 for both → pool=scored → max RSS
+    assert lh.find_main_xray_pid(
+        "xray-linux-amd64",
+        cmdline_include=("bin/config.json",),
+        cmdline_exclude=("xray-hop-probe",),
+    ) == 202

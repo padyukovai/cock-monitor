@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from cock_monitor.adapters.linux_host import (
+    find_main_xray_pid,
     find_process_by_comm,
     parse_ss_state_line_counts,
     read_conntrack_fill,
@@ -176,7 +177,7 @@ class LeakEnrichedSample:
 
 def collect_leak_enriched(st: dict[str, str]) -> LeakEnrichedSample:
     xray_match = os.environ.get("LEAK_XRAY_PROCESS_MATCH", "xray-linux-amd64")
-    pid = find_process_by_comm(xray_match) or 0
+    pid = find_main_xray_pid(xray_match) or 0
     prev_pid = int(st.get("xray_pid", "0") or "0")
     prev_ticks = None
     prev_wall = None
